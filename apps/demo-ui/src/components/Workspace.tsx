@@ -12,6 +12,7 @@ import { type Mode, Toolbar } from "./Toolbar";
 import { ObjectPanel } from "./ObjectPanel";
 import { ZonePanel } from "./ZonePanel";
 import { TopBar } from "./TopBar";
+import { WarningsBar } from "./WarningsBar";
 
 export function Workspace() {
   const demo = useDemo();
@@ -135,25 +136,28 @@ export function Workspace() {
             />
           )}
         </aside>
-        <main className="relative min-h-0 min-w-0 bg-stage" aria-label="Camera view">
+        <main className="relative flex min-h-0 min-w-0 flex-col bg-stage" aria-label="Camera view">
           <NoticeBar notice={demo.notice} onDismiss={demo.dismissNotice} />
-          {state ? (
-            <Stage
-              state={state}
-              mode={mode}
-              selectedZone={selectedZone}
-              onSelectZone={setSelectedZone}
-              onCreateZone={createZone}
-              onEditZone={editZone}
-              selectedObject={selectedObject}
-              onSelectObject={setSelectedObject}
-              liveDrag={liveDrag}
-              onDragObject={demo.dragObject}
-              onDropObject={demo.dropObject}
-            />
-          ) : (
-            <p className="p-6 text-dim">{demo.notice?.text ?? "Loading…"}</p>
-          )}
+          <WarningsBar warnings={state?.warnings ?? []} />
+          <div className="min-h-0 flex-1">
+            {state ? (
+              <Stage
+                state={state}
+                mode={mode}
+                selectedZone={selectedZone}
+                onSelectZone={setSelectedZone}
+                onCreateZone={createZone}
+                onEditZone={editZone}
+                selectedObject={selectedObject}
+                onSelectObject={setSelectedObject}
+                liveDrag={liveDrag}
+                onDragObject={demo.dragObject}
+                onDropObject={demo.dropObject}
+              />
+            ) : (
+              <p className="p-6 text-dim">{demo.notice?.text ?? "Loading…"}</p>
+            )}
+          </div>
         </main>
         <aside className="min-h-0 border-l border-line bg-surface">
           <EventFeed

@@ -37,8 +37,9 @@ export function EventFeed({ events, sink, sinkError, configError }: Props) {
       </header>
       {configError && (
         <p role="alert" className="border-b border-line bg-accent-soft px-3 py-2 text-text">
-          <strong className="font-semibold">Zones saved locally, not in the database.</strong>{" "}
-          Events will not match a stored zone version until this clears. {configError}
+          <strong className="font-semibold">Zones not saved.</strong> They apply for this session,
+          but the database could not store them. Start Postgres, then save the zones again or move a
+          box. {configError}
         </p>
       )}
       {sinkError && (
