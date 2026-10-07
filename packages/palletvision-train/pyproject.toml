@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 pv-train = "palletvision_train.cli:main"
+pv-export = "palletvision_train.export:main"
 
 [build-system]
 requires = ["hatchling"]

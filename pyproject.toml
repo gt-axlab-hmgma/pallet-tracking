@@ -8,6 +8,7 @@ dev = [
   "mypy>=1.11",
   "pre-commit>=3.8",
   "onnx>=1.23.2",
+  "onnxruntime>=1.30.0",
 ]
 
 [tool.ruff]
