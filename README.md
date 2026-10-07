@@ -357,6 +357,8 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | `tests/golden/` | Language-neutral zone fixtures. The future C++ engine must reproduce them. |
 | `data/` | Local datasets and videos. Git-ignored. |
 | `docs/design.md` | Design document. |
+| `docs/post-inference.md` | Plain-language diagrams of what happens after detection. |
+| `docs/yolo26-bytetrack-implementation-guide.md` | Step-by-step guide to implementing the detector and tracker. |
 
 ## Laptop notes (Apple silicon)
 
