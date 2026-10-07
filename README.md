@@ -119,7 +119,9 @@ Open <http://localhost:3000>, then check the rows with the [queries below](#look
 | Mock objects | Type dropdown | Change the object's type |
 | Mock objects | **Log events while dragging** | On: events fire the moment the dot crosses an edge. Off: only when you release. |
 
-Zones are saved to `configs/cameras/<camera-id>.yaml` and reloaded next time. Delete that file to start over. If the saved zones were drawn on a different frame size, a warning is shown.
+Zones are saved to `configs/cameras/<camera-id>.yaml` (the working copy the demo reloads next time). Delete that file to start over. If the saved zones were drawn on a different frame size, a warning is shown.
+
+With `--sink postgres`, every save is also stored in the database as a new, immutable version, so you keep the full history even though the file only holds the latest. Version numbers continue from the database. With the other sinks, zones live only in the file.
 
 ### `pv-demo`: the demo API
 
@@ -129,7 +131,7 @@ uv run pv-demo --sink postgres --camera-id cam01 --device-id nano-01
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--sink` | `jsonl` | Where events go: `jsonl` (a file), `postgres`, `outbox` (local queue for `pv-sync`) or `stdout`. |
+| `--sink` | `jsonl` | Where events go: `jsonl` (a file), `postgres` (events and zone versions), `outbox` (local queue for `pv-sync`) or `stdout`. |
 | `--source` | none | Reference frame: image, video, or camera index. Default is a generated placeholder. |
 | `--camera-id` | `cam01` | Names the zone file and tags the events. |
 | `--device-id` | `demo-laptop` | Tags the events. Production uses one id per Jetson. |
@@ -170,7 +172,7 @@ Settings come from `.env` (copy `.env.example`): `PV_DB_USER`, `PV_DB_PASSWORD`,
 | --- | --- |
 | `events` | One row per join (`enter`) or leave (`exit`). Partitioned by month. |
 | `devices`, `cameras` | Who sent events. Created automatically on first event. |
-| `zone_configs` | Versioned zone polygons per camera. Created by the migration; the demo does not write to it yet. |
+| `zone_configs` | Every saved zone set, kept forever as an immutable version per camera (never edited). Written by `pv-demo --sink postgres`, which records `saved_by = demo`. |
 | `zone_visits` | View that pairs each `enter` with the next `exit` and computes `dwell_s`. An open visit has no `t_exit`. |
 
 ### Look at the data
@@ -187,6 +189,16 @@ from events order by device_ts desc limit 20;
 -- how long objects stayed in each zone
 select zone_id, object_type, t_enter, t_exit, round(dwell_s::numeric, 1) as dwell_s
 from zone_visits order by t_enter desc limit 20;
+
+-- which polygons was each event computed against? (needs --sink postgres)
+select e.device_ts, e.event_type, e.zone_id, e.config_version, z.zones
+from events e
+join zone_configs z on z.camera_id = e.camera_id and z.version = e.config_version
+order by e.device_ts desc limit 10;
+
+-- every saved version of a camera's zones
+select version, saved_by, created_at, jsonb_array_length(zones) as zone_count
+from zone_configs where camera_id = 'cam01' order by version;
 
 -- are any events missing from a device? (seq should count up by one)
 select device_id, min(seq), max(seq), count(*) from events group by device_id;
@@ -321,6 +333,7 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | `Cannot connect to the Docker daemon` | Open Docker Desktop and wait until it says it is running. |
 | `pv-db: cannot reach Postgres` | `docker compose up -d db`, wait a few seconds, retry. |
 | Port 5432 already in use | Set `PV_DB_PORT=5433` in `.env`, then `docker compose up -d db` again. |
+| Event log says "Zones saved locally, not in the database" | The zones are saved in the yaml file but the version could not be inserted into Postgres. Start and migrate the database (`docker compose up -d db && uv run pv-db migrate`), then save the zones again or move a box: the missing version is stored first. |
 | Event log says "Shown here but not stored" | Postgres is unreachable or not migrated: `docker compose up -d db && uv run pv-db migrate`. |
 | Port 3000 or 8000 busy | `npm run dev --prefix apps/demo-ui -- --port 3001`, or `uv run pv-demo --port 8001` with `PV_API_URL` set for the UI. |
 | Zones look misplaced after changing `--source` | The saved zones were drawn on another frame size. Delete `configs/cameras/<camera>.yaml` or keep the same source. |
