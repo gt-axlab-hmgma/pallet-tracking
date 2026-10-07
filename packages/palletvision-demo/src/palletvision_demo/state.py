@@ -1,5 +1,6 @@
 import math
 import threading
+from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from palletvision_demo.frame import encode_jpeg, load_reference_frame
 from palletvision_demo.settings import Settings
 from palletvision_demo.sinks import build_sink
+from palletvision_demo.stream import EventBus
 from palletvision_events.record import EventFactory, describe
 from palletvision_zones.config import (
     ConfigError,
@@ -66,6 +68,8 @@ class DemoState:
         self.lock = threading.RLock()
         self.engine = ZoneEngine(self.config.zones, settings.hysteresis_frames)
         self.objects: dict[int, MockObject] = {}
+        self.bus = EventBus()
+        self.log: deque[dict[str, Any]] = deque(maxlen=500)
         self._next_id = 1
         self.sink, start_seq, sink_warnings = build_sink(settings)
         self.warnings.extend(sink_warnings)
@@ -118,10 +122,15 @@ class DemoState:
     def _emit(self, transitions: list[Transition]) -> Result:
         events = [self.factory.make(t) for t in transitions]
         sink_error = self.sink.write(events) if events else None
-        return Result(
-            [{**e.to_dict(), "message": describe(e)} for e in events],
-            sink_error,
-        )
+        dicts = [{**e.to_dict(), "message": describe(e)} for e in events]
+        for d in dicts:
+            self.log.append(d)
+            self.bus.publish(d)
+        return Result(dicts, sink_error)
+
+    def recent_events(self, limit: int) -> list[dict[str, Any]]:
+        with self.lock:
+            return list(self.log)[-limit:] if limit > 0 else []
 
     def _check_type(self, object_type: str) -> None:
         if object_type not in self.object_types:

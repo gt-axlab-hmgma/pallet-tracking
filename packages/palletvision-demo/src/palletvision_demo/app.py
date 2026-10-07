@@ -1,6 +1,7 @@
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from palletvision_demo.settings import Settings
@@ -11,6 +12,7 @@ from palletvision_demo.state import (
     UnknownObjectError,
     ZoneInputError,
 )
+from palletvision_demo.stream import sse_lines
 
 
 class ZonesBody(BaseModel):
@@ -85,5 +87,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except UnknownObjectError as exc:
             raise HTTPException(status_code=404, detail="unknown object") from exc
         return _result(result)
+
+    @app.get("/api/events")
+    def recent_events(limit: int = 100) -> dict[str, Any]:
+        return {"events": state.recent_events(min(limit, 500))}
+
+    @app.get("/api/events/stream")
+    async def event_stream(request: Request) -> StreamingResponse:
+        return StreamingResponse(
+            sse_lines(state.bus, request.is_disconnected),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
