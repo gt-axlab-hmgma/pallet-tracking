@@ -1,26 +1,140 @@
 @import "tailwindcss";
 
+/*
+  Operator-tool palette. Neutrals are tinted toward the brand hue (pallet-wood amber, ~70) and
+  every colour is OKLCH. Dark follows the OS by default; data-theme overrides it.
+  The accent (amber) is reserved for selection and the one primary action per panel.
+  Zone colours deliberately avoid the amber hues so a selected zone never looks like a brand tint.
+*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: oklch(0.955 0.008 80);
+  --surface: oklch(0.985 0.005 80);
+  --surface-2: oklch(0.935 0.01 80);
+  --line: oklch(0.86 0.012 80);
+  --text: oklch(0.24 0.015 70);
+  --text-dim: oklch(0.42 0.015 70);
+  --text-faint: oklch(0.52 0.012 70);
+  --accent: oklch(0.6 0.15 62);
+  --accent-ink: oklch(0.98 0.01 80);
+  --accent-soft: oklch(0.6 0.15 62 / 0.14);
+  --join: oklch(0.5 0.11 175);
+  --leave: oklch(0.54 0.17 35);
+  --danger: oklch(0.52 0.19 25);
+  --stage: oklch(0.2 0.01 70);
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.175 0.008 70);
+    --surface: oklch(0.215 0.009 70);
+    --surface-2: oklch(0.26 0.01 70);
+    --line: oklch(0.33 0.01 70);
+    --text: oklch(0.93 0.008 70);
+    --text-dim: oklch(0.74 0.01 70);
+    --text-faint: oklch(0.6 0.01 70);
+    --accent: oklch(0.8 0.15 75);
+    --accent-ink: oklch(0.22 0.04 70);
+    --accent-soft: oklch(0.8 0.15 75 / 0.16);
+    --join: oklch(0.8 0.13 172);
+    --leave: oklch(0.76 0.15 38);
+    --danger: oklch(0.72 0.18 25);
+    --stage: oklch(0.14 0.008 70);
+    color-scheme: dark;
   }
 }
 
+:root[data-theme="dark"] {
+  --bg: oklch(0.175 0.008 70);
+  --surface: oklch(0.215 0.009 70);
+  --surface-2: oklch(0.26 0.01 70);
+  --line: oklch(0.33 0.01 70);
+  --text: oklch(0.93 0.008 70);
+  --text-dim: oklch(0.74 0.01 70);
+  --text-faint: oklch(0.6 0.01 70);
+  --accent: oklch(0.8 0.15 75);
+  --accent-ink: oklch(0.22 0.04 70);
+  --accent-soft: oklch(0.8 0.15 75 / 0.16);
+  --join: oklch(0.8 0.13 172);
+  --leave: oklch(0.76 0.15 38);
+  --danger: oklch(0.72 0.18 25);
+  --stage: oklch(0.14 0.008 70);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-dim: var(--text-dim);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-join: var(--join);
+  --color-leave: var(--leave);
+  --color-danger: var(--danger);
+  --color-stage: var(--stage);
+  --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  /* Fixed rem scale for an app UI: 11 / 13 / 16 / 20 / 25 (ratio >= 1.2 between steps). */
+  --text-micro: 0.6875rem;
+  --text-ui: 0.8125rem;
+  --text-lead: 1rem;
+  --text-title: 1.25rem;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* New feed rows ease in with transform and opacity only. */
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.feed-in {
+  animation: feed-in 220ms var(--ease-out-quart);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-in {
+    animation: none;
+  }
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
