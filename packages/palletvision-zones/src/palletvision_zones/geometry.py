@@ -74,3 +74,9 @@ def validate_polygon(polygon: Polygon) -> None:
     )
     if area2 == 0:
         raise PolygonError("polygon has zero area")
+
+
+def ground_point(box: tuple[float, float, float, float]) -> Point:
+    """Bottom-centre of an xyxy box: where the object touches the floor in the image."""
+    x1, _, x2, y2 = box
+    return ((x1 + x2) / 2, y2)
