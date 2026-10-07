@@ -1,0 +1,4 @@
+# Generated rectangles on noise. Smoke tests and CI only, needs no download.
+name: synthetic
+size: 640
+num_samples: 64
