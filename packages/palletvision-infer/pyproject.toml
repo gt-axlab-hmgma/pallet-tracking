@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 pv-infer = "palletvision_infer.cli:main"
+pv-bench = "palletvision_infer.bench:main"
 
 [build-system]
 requires = ["hatchling"]
