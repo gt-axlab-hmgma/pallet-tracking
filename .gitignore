@@ -41,3 +41,6 @@ data/*
 .DS_Store
 .idea/
 .vscode/
+
+# Local secrets
+.env
