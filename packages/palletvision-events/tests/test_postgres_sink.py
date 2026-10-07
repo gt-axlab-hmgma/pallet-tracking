@@ -94,3 +94,12 @@ def test_zone_visits_view_reports_dwell(db_url: str) -> None:
     assert rows[0][:2] == ("zone_1", "pallet_type_a")
     assert float(rows[0][2]) == 1.0 and rows[0][3] is False
     assert rows[1][2] is None and rows[1][3] is True  # open visit
+
+
+def test_next_seq_continues_after_existing_events(db_url: str) -> None:
+    sink = PostgresSink(db_url)
+    assert sink.next_seq("nano-01") == 0
+    sink.write(make_events(4))
+    assert sink.next_seq("nano-01") == 4
+    assert sink.next_seq("someone-else") == 0
+    sink.close()

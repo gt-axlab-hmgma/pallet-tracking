@@ -55,5 +55,13 @@ class PostgresSink:
                 ],
             )  # fmt: skip
 
+    def next_seq(self, device_id: str) -> int:
+        """First unused per-device sequence number, so a restarted writer keeps counting."""
+        row = self._conn.execute(
+            "SELECT coalesce(max(seq) + 1, 0) FROM events WHERE device_id = %s", (device_id,)
+        ).fetchone()
+        self._conn.rollback()  # end the read-only transaction
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
         self._conn.close()
