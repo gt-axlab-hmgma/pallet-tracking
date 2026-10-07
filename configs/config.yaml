@@ -1,0 +1,8 @@
+defaults:
+  - model: yolo26n
+  - data: loco
+  - train: stage1_pallet
+  - _self_
+
+device: auto  # auto | cpu | cuda | mps
+seed: 0

@@ -1,0 +1,10 @@
+name: loco
+root: data/loco
+annotations: data/loco/annotations.json  # COCO format
+# every pallet-like label is mapped to the single stage-1 class
+class_map:
+  pallet: pallet
+  pallet_truck: pallet
+  stillage: pallet
+val_fraction: 0.1
+num_workers: 4
