@@ -1,0 +1,27 @@
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pre-commit>=3.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["packages/*/src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "packages"]
+addopts = "-ra"
