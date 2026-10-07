@@ -14,6 +14,7 @@ members = [
     "palletvision-infer",
     "palletvision-model",
     "palletvision-train",
+    "palletvision-zones",
 ]
 
 [manifest.dependency-groups]
@@ -1189,6 +1190,17 @@ requires-dist = [
     { name = "palletvision-model", editable = "packages/palletvision-model" },
     { name = "torch", specifier = ">=2.4" },
 ]
+
+[[package]]
+name = "palletvision-zones"
+version = "0.1.0"
+source = { editable = "packages/palletvision-zones" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6" }]
 
 [[package]]
 name = "pathspec"
