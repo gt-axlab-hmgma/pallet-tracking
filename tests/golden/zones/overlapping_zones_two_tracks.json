@@ -1,0 +1,158 @@
+{
+  "description": "Overlapping zones both fire; tracks are independent and keep their own type.",
+  "hysteresis_frames": 1,
+  "zones": [
+    {
+      "id": "outer",
+      "polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          0
+        ],
+        [
+          100,
+          100
+        ],
+        [
+          0,
+          100
+        ]
+      ]
+    },
+    {
+      "id": "inner",
+      "polygon": [
+        [
+          20,
+          20
+        ],
+        [
+          80,
+          20
+        ],
+        [
+          80,
+          80
+        ],
+        [
+          20,
+          80
+        ]
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        },
+        {
+          "track_id": 2,
+          "object_type": "pallet_type_b",
+          "box": [
+            0,
+            70,
+            20,
+            90
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "enter",
+          "zone_id": "outer",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        },
+        {
+          "event_type": "enter",
+          "zone_id": "inner",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        },
+        {
+          "event_type": "enter",
+          "zone_id": "outer",
+          "track_id": 2,
+          "object_type": "pallet_type_b"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            80,
+            70,
+            100,
+            90
+          ]
+        },
+        {
+          "track_id": 2,
+          "object_type": "pallet_type_b",
+          "box": [
+            0,
+            70,
+            20,
+            90
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "exit",
+          "zone_id": "inner",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            140,
+            70,
+            160,
+            90
+          ]
+        },
+        {
+          "track_id": 2,
+          "object_type": "pallet_type_b",
+          "box": [
+            0,
+            70,
+            20,
+            90
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "exit",
+          "zone_id": "outer",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    }
+  ]
+}

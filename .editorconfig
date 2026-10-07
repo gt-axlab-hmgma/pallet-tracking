@@ -13,3 +13,6 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+[*.{ts,tsx,js,mjs,css}]
+indent_size = 2

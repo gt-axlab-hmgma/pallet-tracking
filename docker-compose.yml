@@ -1,0 +1,20 @@
+# Local Postgres for development and tests only. Never put sponsor data in a cloud database.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${PV_DB_USER:-palletvision}
+      POSTGRES_PASSWORD: ${PV_DB_PASSWORD:-palletvision}
+      POSTGRES_DB: ${PV_DB_NAME:-palletvision}
+    ports:
+      - "${PV_DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PV_DB_USER:-palletvision} -d ${PV_DB_NAME:-palletvision}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
