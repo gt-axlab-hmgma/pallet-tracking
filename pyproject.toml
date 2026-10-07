@@ -9,6 +9,7 @@ dev = [
   "pre-commit>=3.8",
   "onnx>=1.23.2",
   "onnxruntime>=1.30.0",
+  "jsonschema>=4.26.0",
 ]
 
 [tool.ruff]
