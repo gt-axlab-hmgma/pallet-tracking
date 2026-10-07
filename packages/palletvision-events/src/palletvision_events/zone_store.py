@@ -40,6 +40,11 @@ class ZoneConfigStore:
             {"camera_id": camera_id, "version": version, "image_size": row[0], "zones": row[1]}
         )
 
+    def latest(self, camera_id: str) -> ZoneConfig | None:
+        """The highest stored version for a camera, or None if it has no saved zones."""
+        version = self.latest_version(camera_id)
+        return self.get(camera_id, version) if version else None
+
     def save(self, config: ZoneConfig) -> bool:
         """Insert a version. Returns False if the identical version is already stored.
 

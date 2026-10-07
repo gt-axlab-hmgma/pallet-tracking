@@ -66,3 +66,16 @@ def test_reference_frame_path_is_not_part_of_the_stored_geometry(db_url: str) ->
     store.save(V1)
     assert store.save(replace(V1, reference_frame="refs/cam01.png")) is False
     store.close()
+
+
+def test_latest_returns_the_newest_version_for_a_camera(db_url: str) -> None:
+    store = ZoneConfigStore(db_url)
+    assert store.latest("cam01") is None
+    store.save(V1)
+    store.save(V2)
+    store.save(replace(V1, camera_id="cam02", version=9))
+    assert store.latest("cam01") == V2
+    cam02 = store.latest("cam02")
+    assert cam02 is not None and cam02.version == 9
+    assert store.latest("nobody") is None
+    store.close()
