@@ -19,6 +19,7 @@ members = [
 [manifest.dependency-groups]
 dev = [
     { name = "mypy", specifier = ">=1.11" },
+    { name = "onnx", specifier = ">=1.23.2" },
     { name = "pre-commit", specifier = ">=3.8" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
