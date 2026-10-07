@@ -102,3 +102,8 @@ class EventFactory:
         )
         self._seq += 1
         return event
+
+
+def describe(event: ZoneEvent) -> str:
+    verb = "joined" if event.event_type == "enter" else "left"
+    return f"object of type {event.object_type} {verb} zone {event.zone_id}"
