@@ -156,7 +156,12 @@ export function Workspace() {
           )}
         </main>
         <aside className="min-h-0 border-l border-line bg-surface">
-          <EventFeed events={demo.events} sink={state?.sink} sinkError={demo.sinkError} />
+          <EventFeed
+            events={demo.events}
+            sink={state?.sink}
+            sinkError={demo.sinkError}
+            configError={demo.configError}
+          />
         </aside>
       </div>
     </div>

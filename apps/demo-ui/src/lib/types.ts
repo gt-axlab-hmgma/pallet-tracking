@@ -46,4 +46,6 @@ export interface ZoneEvent {
 export interface MutationResult {
   events: ZoneEvent[];
   sink_error: string | null;
+  /** The zone version could not be stored in the database (zones still saved locally). */
+  config_error?: string | null;
 }

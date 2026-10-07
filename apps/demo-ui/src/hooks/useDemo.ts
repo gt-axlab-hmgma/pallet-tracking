@@ -29,6 +29,7 @@ export function useDemo() {
   const [events, setEvents] = useState<ZoneEvent[]>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [sinkError, setSinkError] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
   const stateRef = useRef<DemoState | null>(null);
   const zoneQueue = useRef<Promise<unknown>>(Promise.resolve());
   const senders = useRef(new Map<number, ReturnType<typeof createThrottle<[Box]>>>());
@@ -40,8 +41,10 @@ export function useDemo() {
 
   const fail = useCallback((e: unknown) => setNotice({ kind: "error", text: messageOf(e) }), []);
 
-  const noteResult = useCallback((r: MutationResult) => {
+  /** Moves that log nothing say nothing about storage, so they must not clear a warning. */
+  const noteResult = useCallback((r: MutationResult, savedZones = false) => {
     if (r.events.length > 0 || r.sink_error) setSinkError(r.sink_error);
+    if (savedZones || r.events.length > 0 || r.config_error) setConfigError(r.config_error ?? null);
   }, []);
 
   const reload = useCallback(async () => {
@@ -77,7 +80,7 @@ export function useDemo() {
           setState((s) =>
             s ? { ...s, zones: res.zones, version: res.version, objects: res.objects } : s,
           );
-          noteResult(res);
+          noteResult(res, true);
           setNotice(null);
         } catch (e) {
           fail(e);
@@ -182,6 +185,7 @@ export function useDemo() {
     events,
     notice,
     sinkError,
+    configError,
     dismissNotice: () => setNotice(null),
     pushEvent,
     backfillEvents,

@@ -4,6 +4,7 @@ interface Props {
   events: ZoneEvent[]; // newest first
   sink: string | undefined;
   sinkError: string | null;
+  configError: string | null;
 }
 
 const clock = (iso: string) => {
@@ -19,7 +20,7 @@ const STORED_COPY: Record<string, string> = {
   stdout: "printed by the API server",
 };
 
-export function EventFeed({ events, sink, sinkError }: Props) {
+export function EventFeed({ events, sink, sinkError, configError }: Props) {
   return (
     <section aria-labelledby="feed-h" className="flex h-full min-h-0 flex-col">
       <header className="border-b border-line p-3">
@@ -34,6 +35,12 @@ export function EventFeed({ events, sink, sinkError }: Props) {
           <p className="mt-1 text-faint">Each event is {STORED_COPY[sink] ?? `sent to ${sink}`}.</p>
         )}
       </header>
+      {configError && (
+        <p role="alert" className="border-b border-line bg-accent-soft px-3 py-2 text-text">
+          <strong className="font-semibold">Zones saved locally, not in the database.</strong>{" "}
+          Events will not match a stored zone version until this clears. {configError}
+        </p>
+      )}
       {sinkError && (
         <p role="alert" className="border-b border-line bg-accent-soft px-3 py-2 text-text">
           <strong className="font-semibold">Shown here but not stored.</strong> {sinkError}
