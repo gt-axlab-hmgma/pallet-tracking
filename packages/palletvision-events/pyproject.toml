@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 pv-db = "palletvision_events.db:main"
+pv-sync = "palletvision_events.sync:main"
 
 [build-system]
 requires = ["hatchling"]
