@@ -1,0 +1,8 @@
+# Stage 1 learns where a pallet is; stage 2 adds pallet types.
+stage1:
+  - pallet
+stage2:
+  - pallet_type_a
+  - pallet_type_b
+  - pallet_type_c
+  - pallet_unknown
