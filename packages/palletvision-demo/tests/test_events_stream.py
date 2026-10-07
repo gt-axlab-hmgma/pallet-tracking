@@ -13,13 +13,7 @@ ZONE = {"id": "z", "polygon": [[0, 0], [200, 0], [200, 200], [0, 200]]}
 
 
 def make_client(tmp_path: Path) -> TestClient:
-    c = TestClient(
-        create_app(
-            Settings(
-                camera_id="camA", config_dir=tmp_path / "cams", jsonl_path=tmp_path / "e.jsonl"
-            )
-        )
-    )
+    c = TestClient(create_app(Settings(camera_id="camA", jsonl_path=tmp_path / "e.jsonl")))
     c.put("/api/zones", json={"zones": [ZONE]})
     return c
 

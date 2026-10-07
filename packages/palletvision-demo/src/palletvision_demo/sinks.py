@@ -107,6 +107,19 @@ class SafeConfigStore:
             self.close()
             return 0
 
+    def load_latest(self, camera_id: str) -> tuple[ZoneConfig | None, str | None]:
+        """The newest saved zones for a camera, and an error message if the database failed."""
+        try:
+            if self._store is None:
+                self._store = self._make()
+            config = self._store.latest(camera_id)
+        except Exception as exc:
+            self.close()
+            return None, f"{type(exc).__name__}: {exc}"
+        if config is not None:
+            self._stored = (config.camera_id, config.version)  # already in the database
+        return config, None
+
     def ensure(self, config: ZoneConfig) -> str | None:
         """Make sure this exact version is stored. Returns an error message, or None."""
         key = (config.camera_id, config.version)

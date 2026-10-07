@@ -6,14 +6,13 @@ from fastapi.testclient import TestClient
 
 from palletvision_demo.app import create_app
 from palletvision_demo.settings import Settings
-from palletvision_zones.config import load_config
 
 SLANTED = [[112, 580], [860, 540], [910, 310], [240, 320]]
 CONCAVE = [[0, 0], [100, 0], [100, 40], [40, 40], [40, 100], [0, 100]]
 
 
 def make_client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(Settings(camera_id="camA", config_dir=tmp_path / "cams")))
+    return TestClient(create_app(Settings(camera_id="camA")))
 
 
 def put_zones(client: TestClient, zones: list[dict[str, Any]]) -> Any:
@@ -30,19 +29,24 @@ def test_save_zones_persists_and_bumps_version(tmp_path: Path) -> None:
     assert body["version"] == 2  # empty starting config is version 1
     assert [z["id"] for z in body["zones"]] == ["slanted", "l"]
 
-    saved = load_config(tmp_path / "cams" / "camA.yaml")
-    assert [z.id for z in saved.zones] == ["slanted", "l"]
-    assert saved.image_size == (1280, 720)
-    assert saved.version == 2
-
     assert put_zones(client, [{"id": "slanted", "polygon": SLANTED}]).json()["version"] == 3
     assert client.get("/api/state").json()["zones"][0]["id"] == "slanted"
 
 
-def test_zones_survive_restart(tmp_path: Path) -> None:
-    put_zones(make_client(tmp_path), [{"id": "z", "polygon": SLANTED}])
-    again = make_client(tmp_path).get("/api/state").json()
+def test_zones_survive_a_restart_when_stored_in_postgres(tmp_path: Path, db_url: str) -> None:
+    def start() -> TestClient:
+        return TestClient(create_app(Settings(camera_id="camA", sink="postgres", db_url=db_url)))
+
+    start().put("/api/zones", json={"zones": [{"id": "z", "polygon": SLANTED}]})
+    again = start().get("/api/state").json()
     assert [z["id"] for z in again["zones"]] == ["z"]
+    assert again["version"] == 2
+
+
+def test_zones_are_never_written_to_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    put_zones(make_client(tmp_path), [{"id": "z", "polygon": SLANTED}])
+    assert list(tmp_path.rglob("*")) == []
 
 
 def test_empty_list_clears_zones(tmp_path: Path) -> None:
@@ -74,5 +78,4 @@ def test_invalid_zones_are_rejected_without_saving(
     res = put_zones(client, zones)
     assert res.status_code == 422
     assert needle in res.json()["detail"]
-    assert not (tmp_path / "cams" / "camA.yaml").exists()
     assert client.get("/api/state").json()["version"] == 1

@@ -25,7 +25,6 @@ def client(tmp_path: Path) -> TestClient:
     settings = Settings(
         camera_id="camA",
         device_id="demo-1",
-        config_dir=tmp_path / "cams",
         jsonl_path=tmp_path / "events.jsonl",
     )
     c = TestClient(create_app(settings))
@@ -138,11 +137,11 @@ def test_seq_continues_across_restarts(client: TestClient, tmp_path: Path) -> No
             Settings(
                 camera_id="camA",
                 device_id="demo-1",
-                config_dir=tmp_path / "cams",
                 jsonl_path=tmp_path / "events.jsonl",
             )
         )
     )
+    again.put("/api/zones", json={"zones": [ZONE_1, ZONE_2]})  # zones are per session here
     body = add(again, 300, 250)
     assert body["events"][0]["seq"] == 1
 
@@ -173,11 +172,7 @@ def test_changing_type_uses_the_new_type_in_later_events(client: TestClient) -> 
 
 
 def test_postgres_sink_writes_rows(tmp_path: Path, db_url: str) -> None:
-    c = TestClient(
-        create_app(
-            Settings(camera_id="camA", config_dir=tmp_path / "cams", sink="postgres", db_url=db_url)
-        )
-    )
+    c = TestClient(create_app(Settings(camera_id="camA", sink="postgres", db_url=db_url)))
     c.put("/api/zones", json={"zones": [ZONE_1, ZONE_2]})
     oid = add(c, 300, 250)["object"]["id"]
     move(c, oid, 850, 300)
@@ -197,7 +192,6 @@ def test_unreachable_database_does_not_break_dragging(tmp_path: Path) -> None:
         create_app(
             Settings(
                 camera_id="camA",
-                config_dir=tmp_path / "cams",
                 sink="postgres",
                 db_url="postgresql://u:p@127.0.0.1:1/none",
             )

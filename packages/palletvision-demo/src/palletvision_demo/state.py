@@ -1,8 +1,7 @@
 import math
 import threading
 from collections import deque
-from dataclasses import dataclass, replace
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 from palletvision_demo.frame import encode_jpeg, load_reference_frame
@@ -15,8 +14,6 @@ from palletvision_zones.config import (
     ZoneConfig,
     config_from_dict,
     config_to_dict,
-    load_config,
-    save_config,
 )
 from palletvision_zones.engine import Track, Transition, ZoneEngine
 from palletvision_zones.geometry import PolygonError
@@ -65,9 +62,7 @@ class DemoState:
         self.image_size = (int(frame.shape[1]), int(frame.shape[0]))
         self.warnings: list[str] = []
         self.object_types = list(DEFAULT_OBJECT_TYPES)
-        self.config = self._load_or_empty()
         self.lock = threading.RLock()
-        self.engine = ZoneEngine(self.config.zones, settings.hysteresis_frames)
         self.objects: dict[int, MockObject] = {}
         self.bus = EventBus()
         self.log: deque[dict[str, Any]] = deque(maxlen=500)
@@ -75,6 +70,8 @@ class DemoState:
         self.sink, start_seq, sink_warnings = build_sink(settings)
         self.config_store = build_config_store(settings)
         self.warnings.extend(sink_warnings)
+        self.config = self._load_or_empty()
+        self.engine = ZoneEngine(self.config.zones, settings.hysteresis_frames)
         self.factory = EventFactory(
             settings.device_id,
             settings.camera_id,
@@ -83,26 +80,35 @@ class DemoState:
             start_seq=start_seq,
         )
 
-    @property
-    def config_path(self) -> Path:
-        return self.settings.config_dir / f"{self.settings.camera_id}.yaml"
-
     def _load_or_empty(self) -> ZoneConfig:
-        if self.config_path.exists():
-            config = load_config(self.config_path)
-            if config.image_size != self.image_size:
-                self.warnings.append(
-                    f"saved zones were drawn on a {config.image_size[0]}x{config.image_size[1]} "
-                    f"frame but this frame is {self.image_size[0]}x{self.image_size[1]}"
-                )
-            return config
-        return ZoneConfig(self.settings.camera_id, self.image_size, ())
+        """Zones live in the database. Without it they exist for this session only."""
+        empty = ZoneConfig(self.settings.camera_id, self.image_size, ())
+        if self.config_store is None:
+            self.warnings.append(
+                "Zones are kept in memory and are lost when the API stops. "
+                "Start with --sink postgres to save them in the database."
+            )
+            return empty
+        config, error = self.config_store.load_latest(self.settings.camera_id)
+        if error:
+            self.warnings.append(
+                "Postgres is not reachable, so saved zones could not be loaded and new zones "
+                "will not be saved until it is."
+            )
+            return empty
+        if config is None:
+            return empty
+        if config.image_size != self.image_size:
+            self.warnings.append(
+                f"Saved zones were drawn on a {config.image_size[0]}x{config.image_size[1]} "
+                f"frame but this frame is {self.image_size[0]}x{self.image_size[1]}."
+            )
+        return config
 
     def replace_zones(self, raw_zones: list[dict[str, Any]]) -> Result:
         """Validate and save a new zone list (new config version). Raises ZoneInputError."""
         with self.lock:
-            # Continue numbering from the database too, so a version never collides with one
-            # saved by an earlier session whose yaml file is gone.
+            # Continue numbering from the database so a version never collides with an old one.
             stored = (
                 self.config_store.latest_version(self.settings.camera_id)
                 if self.config_store
@@ -118,8 +124,6 @@ class DemoState:
                 config = config_from_dict(candidate)
             except (ConfigError, PolygonError) as exc:
                 raise ZoneInputError(str(exc)) from exc
-            to_save = replace(config, reference_frame=self.config.reference_frame)
-            save_config(to_save, self.config_path)
             self.config = config
             self.factory.config_version = config.version
             self.engine.set_zones(config.zones)

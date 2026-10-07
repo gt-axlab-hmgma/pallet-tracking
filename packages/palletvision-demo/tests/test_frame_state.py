@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from palletvision_demo.app import create_app
 from palletvision_demo.frame import encode_jpeg, load_reference_frame, placeholder_frame
 from palletvision_demo.settings import Settings
-from palletvision_zones.config import Zone, ZoneConfig, save_config
+from palletvision_events.zone_store import ZoneConfigStore
+from palletvision_zones.config import Zone, ZoneConfig
 
 
 def test_placeholder_frame_is_a_usable_image() -> None:
@@ -42,7 +43,7 @@ def test_encode_jpeg_returns_jpeg_bytes() -> None:
 
 
 def client(tmp_path: Path, **kw: object) -> TestClient:
-    return TestClient(create_app(Settings(config_dir=tmp_path / "cams", **kw)))  # type: ignore[arg-type]
+    return TestClient(create_app(Settings(**kw)))  # type: ignore[arg-type]
 
 
 def test_frame_endpoint_serves_jpeg(tmp_path: Path) -> None:
@@ -68,10 +69,15 @@ def test_state_starts_empty(tmp_path: Path) -> None:
     assert state["sink"] == "jsonl"
 
 
-def test_state_loads_saved_zone_config(tmp_path: Path) -> None:
+def test_state_loads_the_latest_saved_zones_from_the_database(tmp_path: Path, db_url: str) -> None:
+    store = ZoneConfigStore(db_url)
+    store.save(ZoneConfig("camA", (1280, 720), (Zone("old", ((0, 0), (9, 0), (9, 9))),), version=2))
     cfg = ZoneConfig("camA", (1280, 720), (Zone("z1", ((0, 0), (100, 0), (100, 100))),), version=4)
-    save_config(cfg, tmp_path / "cams" / "camA.yaml")
-    state = client(tmp_path, camera_id="camA").get("/api/state").json()
+    store.save(cfg)
+    store.close()
+    state = (
+        client(tmp_path, camera_id="camA", sink="postgres", db_url=db_url).get("/api/state").json()
+    )
     assert state["version"] == 4
     assert state["zones"] == [
         {"id": "z1", "polygon": [[0, 0], [100, 0], [100, 100]], "min_dwell_s": 0}
@@ -79,8 +85,26 @@ def test_state_loads_saved_zone_config(tmp_path: Path) -> None:
     assert state["warnings"] == []
 
 
-def test_state_warns_when_saved_zones_do_not_match_frame_size(tmp_path: Path) -> None:
-    cfg = ZoneConfig("camA", (640, 480), (Zone("z1", ((0, 0), (10, 0), (10, 10))),))
-    save_config(cfg, tmp_path / "cams" / "camA.yaml")
-    state = client(tmp_path, camera_id="camA").get("/api/state").json()
+def test_state_warns_when_saved_zones_do_not_match_frame_size(tmp_path: Path, db_url: str) -> None:
+    store = ZoneConfigStore(db_url)
+    store.save(ZoneConfig("camA", (640, 480), (Zone("z1", ((0, 0), (10, 0), (10, 10))),)))
+    store.close()
+    state = (
+        client(tmp_path, camera_id="camA", sink="postgres", db_url=db_url).get("/api/state").json()
+    )
     assert any("640" in w for w in state["warnings"])
+
+
+def test_state_says_zones_are_not_saved_without_postgres(tmp_path: Path) -> None:
+    state = client(tmp_path).get("/api/state").json()
+    assert any("memory" in w and "--sink postgres" in w for w in state["warnings"])
+
+
+def test_state_warns_when_the_database_is_unreachable(tmp_path: Path) -> None:
+    state = (
+        client(tmp_path, sink="postgres", db_url="postgresql://u:p@127.0.0.1:1/none")
+        .get("/api/state")
+        .json()
+    )
+    assert state["zones"] == []
+    assert any("not reachable" in w for w in state["warnings"])

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from palletvision_demo.app import create_app
 from palletvision_demo.settings import Settings
 from palletvision_events.zone_store import ZoneConfigStore
-from palletvision_zones.config import Zone, ZoneConfig, save_config
+from palletvision_zones.config import Zone, ZoneConfig
 
 ZONE_A = {"id": "zone_a", "polygon": [[100, 100], [500, 120], [480, 400], [80, 380]]}
 ZONE_B = {"id": "zone_b", "polygon": [[700, 100], [1000, 100], [1000, 400], [700, 400]]}
@@ -18,7 +18,6 @@ def client(tmp_path: Path, db_url: str, sink: str = "postgres") -> TestClient:
     settings = Settings(
         camera_id="camA",
         device_id="demo-1",
-        config_dir=tmp_path / "cams",
         jsonl_path=tmp_path / "e.jsonl",
         sink=sink,  # type: ignore[arg-type]
         db_url=db_url,
@@ -65,24 +64,27 @@ def test_version_numbering_continues_from_the_database(tmp_path: Path, db_url: s
     assert c.put("/api/zones", json={"zones": [ZONE_A]}).json()["version"] == 6
 
 
-def test_existing_yaml_version_is_stored_before_its_events(tmp_path: Path, db_url: str) -> None:
+def test_zones_loaded_from_the_database_keep_their_version(tmp_path: Path, db_url: str) -> None:
     polygon = ((100.0, 100.0), (500.0, 120.0), (480.0, 400.0), (80.0, 380.0))
-    cfg = ZoneConfig("camA", (1280, 720), (Zone("zone_a", polygon),), version=3)
-    save_config(cfg, tmp_path / "cams" / "camA.yaml")
+    store = ZoneConfigStore(db_url, saved_by="earlier-session")
+    store.save(ZoneConfig("camA", (1280, 720), (Zone("zone_a", polygon),), version=3))
+    store.close()
     c = client(tmp_path, db_url)
     res = c.post("/api/objects", json={"object_type": "pallet_type_a", "box": BOX_IN_A})
     assert res.json()["config_error"] is None
-    assert rows(db_url, "SELECT version FROM zone_configs") == [(3,)]
+    assert rows(db_url, "SELECT version FROM zone_configs") == [(3,)]  # not stored a second time
     assert rows(db_url, "SELECT config_version FROM events") == [(3,)]
+    assert c.put("/api/zones", json={"zones": [ZONE_A]}).json()["version"] == 4
 
 
-def test_unreachable_database_still_saves_zones_and_warns(tmp_path: Path) -> None:
+def test_unreachable_database_still_applies_zones_and_warns(tmp_path: Path) -> None:
     c = client(tmp_path, "postgresql://u:p@127.0.0.1:1/none")
     res = c.put("/api/zones", json={"zones": [ZONE_A]})
     assert res.status_code == 200
     assert res.json()["version"] == 2
     assert "OperationalError" in res.json()["config_error"]
-    assert (tmp_path / "cams" / "camA.yaml").exists()
+    state = c.get("/api/state").json()
+    assert [z["id"] for z in state["zones"]] == ["zone_a"]  # applied for this session
 
 
 def test_other_sinks_do_not_touch_the_database(tmp_path: Path) -> None:
