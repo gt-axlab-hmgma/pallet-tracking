@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Training outputs and experiment tracking
+runs/
+outputs/
+multirun/
+mlruns/
+wandb/
+lightning_logs/
+
+# Model artefacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.trt
+
+# Data and footage (sponsor data must never be committed)
+data/*
+!data/.gitkeep
+!data/README.md
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,6 @@
+name: yolo26n
+depth_multiple: 0.50
+width_multiple: 0.25  # P3/P4/P5 channels 64/128/256 after scaling
+num_classes: 1
+reg_max: 1  # direct box regression, no DFL
+input_size: 640

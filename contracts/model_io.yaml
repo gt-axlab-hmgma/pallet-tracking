@@ -1,0 +1,15 @@
+# Contract between training/export and every runtime (Python now, C++ later).
+version: 1
+input:
+  name: images
+  layout: NCHW
+  dtype: float32
+  shape: [1, 3, 640, 640]
+  channel_order: RGB
+  scale: 0.00392156862745098  # 1 / 255, no mean/std
+  letterbox_pad_value: 114
+outputs:
+  - name: detections  # NMS-free, one row per kept box
+    dtype: float32
+    shape: [1, 300, 6]  # x1, y1, x2, y2, score, class (input pixel coords)
+onnx_opset: 13
