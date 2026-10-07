@@ -45,7 +45,7 @@ uv run pytest                             # sanity check
 
 ```text
  browser (:3000)  ──►  Next.js UI  ──/api──►  pv-demo API (:8000)  ──►  zone engine  ──►  event
-   draw zones                                   saves configs/cameras/<camera>.yaml            │
+   draw zones                                   saves each zone set as a version in Postgres   │
    drag mock boxes  ◄── live event log (SSE) ◄──────────────────────────────────────────────────┤
                                                                                                 ▼
                                                               jsonl file │ Postgres │ outbox (--sink)
@@ -119,9 +119,7 @@ Open <http://localhost:3000>, then check the rows with the [queries below](#look
 | Mock objects | Type dropdown | Change the object's type |
 | Mock objects | **Log events while dragging** | On: events fire the moment the dot crosses an edge. Off: only when you release. |
 
-Zones are saved to `configs/cameras/<camera-id>.yaml` (the working copy the demo reloads next time). Delete that file to start over. If the saved zones were drawn on a different frame size, a warning is shown.
-
-With `--sink postgres`, every save is also stored in the database as a new, immutable version, so you keep the full history even though the file only holds the latest. Version numbers continue from the database. With the other sinks, zones live only in the file.
+**Where zones are kept.** Zones live in the database, not in a file. With `--sink postgres`, every save is stored as a new, immutable version in `zone_configs` (you keep the full history), the demo loads the latest version when it starts, and version numbers continue from the database. To start over, draw new zones; old versions stay in the history. With any other sink there is no database, so zones exist only while the API is running, and a bar at the top of the page says so. If the saved zones were drawn on a different frame size, a warning is shown.
 
 ### `pv-demo`: the demo API
 
@@ -135,7 +133,6 @@ uv run pv-demo --sink postgres --camera-id cam01 --device-id nano-01
 | `--source` | none | Reference frame: image, video, or camera index. Default is a generated placeholder. |
 | `--camera-id` | `cam01` | Names the zone file and tags the events. |
 | `--device-id` | `demo-laptop` | Tags the events. Production uses one id per Jetson. |
-| `--config-dir` | `configs/cameras` | Where zone files are saved. |
 | `--jsonl` | `runs/demo/events.jsonl` | File used by `--sink jsonl`. |
 | `--outbox` | `runs/outbox.db` | Queue file used by `--sink outbox`. |
 | `--db-url` | from `.env` | Postgres URL for `--sink postgres`. |
@@ -333,10 +330,12 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | `Cannot connect to the Docker daemon` | Open Docker Desktop and wait until it says it is running. |
 | `pv-db: cannot reach Postgres` | `docker compose up -d db`, wait a few seconds, retry. |
 | Port 5432 already in use | Set `PV_DB_PORT=5433` in `.env`, then `docker compose up -d db` again. |
-| Event log says "Zones saved locally, not in the database" | The zones are saved in the yaml file but the version could not be inserted into Postgres. Start and migrate the database (`docker compose up -d db && uv run pv-db migrate`), then save the zones again or move a box: the missing version is stored first. |
+| Event log says "Zones not saved" | The zones apply for this session, but Postgres could not store them. Start and migrate the database (`docker compose up -d db && uv run pv-db migrate`), then save the zones again or move a box: the missing version is stored first. |
+| Bar says "Zones are kept in memory" | You started without `--sink postgres`, so zones vanish when the API stops. Restart with `uv run pv-demo --sink postgres`. |
+| Drawn zones are gone after restarting the API | Same cause: the API was not using Postgres. |
 | Event log says "Shown here but not stored" | Postgres is unreachable or not migrated: `docker compose up -d db && uv run pv-db migrate`. |
 | Port 3000 or 8000 busy | `npm run dev --prefix apps/demo-ui -- --port 3001`, or `uv run pv-demo --port 8001` with `PV_API_URL` set for the UI. |
-| Zones look misplaced after changing `--source` | The saved zones were drawn on another frame size. Delete `configs/cameras/<camera>.yaml` or keep the same source. |
+| Zones look misplaced after changing `--source` | The saved zones were drawn on another frame size (the page warns about it). Keep the same source, or use a new `--camera-id` to start with empty zones. |
 | Webcam snapshot is black or fails | Grant camera access to your terminal (macOS Privacy settings) and retry. |
 | Database tests are skipped | They need the local Postgres. Run `docker compose up -d db`. |
 
@@ -352,7 +351,7 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | `packages/palletvision-demo` | The demo API (`pv-demo`). Kept separate so FastAPI never ships to a Jetson. |
 | `apps/demo-ui` | The browser UI (Next.js). |
 | `contracts/` | Model I/O, class lists, and the zone and event schemas shared by every runtime. |
-| `configs/` | Hydra training configs and, under `cameras/`, the saved zone files. |
+| `configs/` | Hydra training configs. |
 | `tests/golden/` | Language-neutral zone fixtures. The future C++ engine must reproduce them. |
 | `data/` | Local datasets and videos. Git-ignored. |
 | `docs/design.md` | Design document. |
