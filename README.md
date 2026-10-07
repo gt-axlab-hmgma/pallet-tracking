@@ -8,27 +8,109 @@ Pallet detection, tracking and zone analytics for HMGMA. A clean-room PyTorch de
 
 Proprietary, all rights reserved (see [LICENSE](LICENSE)). Do not install or import `ultralytics`, copy its source, or start from its weights; the model is our own reimplementation. Footage from HMGMA is under NDA and must never be committed.
 
-## Quickstart
+## Setup
 
 Requires [uv](https://docs.astral.sh/uv/). It installs Python 3.11 and every dependency from `uv.lock`.
 
 ```bash
 uv sync --all-packages
 uv run pytest
+```
 
-# train on generated data (no download needed), export, benchmark, run on a video
+## Commands
+
+The typical flow is **train → export → benchmark → infer**. Each step feeds the next:
+
+```text
+pv-train  ->  runs/stage1/last.pt  ->  pv-export  ->  model.onnx  ->  pv-bench / pv-infer
+```
+
+Use the same `size` everywhere: the value you trained with is the value you export, benchmark and infer with.
+
+### `pv-train`: train a model
+
+Trains the detector and saves a checkpoint to `<output_dir>/last.pt`. Arguments are [Hydra](https://hydra.cc) overrides written as `key=value` (defaults live in `configs/`).
+
+```bash
 uv run pv-train data=synthetic data.size=64 data.num_samples=16 model.input_size=64 train.max_steps=4
+```
+
+| Override | Default | Meaning |
+| --- | --- | --- |
+| `data` | `loco` | Dataset. Only `synthetic` works for now (generated boxes, no download). |
+| `data.size` | `640` | Synthetic image size in pixels. |
+| `data.num_samples` | `64` | Number of synthetic images. |
+| `model.input_size` | `640` | Model input size. Keep equal to `data.size`. |
+| `device` | `auto` | `auto`, `cpu`, `cuda` or `mps`. |
+| `train.epochs` | `100` | Passes over the data. |
+| `train.batch_size` | `16` | Images per step. |
+| `train.lr` | `0.001` | Learning rate. |
+| `train.amp` | `true` | fp16 autocast, only used on cuda/mps. |
+| `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
+| `train.output_dir` | `runs/stage1` | Where `last.pt` is written. |
+
+### `pv-export`: convert a checkpoint to ONNX
+
+Produces the `.onnx` file that `pv-bench` and `pv-infer` load (opset 13, tensor names from `contracts/model_io.yaml`).
+
+```bash
 uv run pv-export --checkpoint runs/stage1/last.pt --size 64 --out runs/export/model.onnx
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--checkpoint` | required | Checkpoint written by `pv-train`. |
+| `--size` | `640` | Input size the model was trained with. |
+| `--out` | `runs/export/model.onnx` | Output ONNX path. |
+
+### `pv-bench`: measure speed
+
+Runs the detector on a random frame and reports mean/p50/p99 latency and fps, saved as JSON.
+
+```bash
 uv run pv-bench --weights runs/export/model.onnx --size 64
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--weights` | none | ONNX model. Omit to benchmark the dummy detector. |
+| `--size` | `640` | Input size. |
+| `--warmup` | `10` | Untimed runs before measuring. |
+| `--iters` | `100` | Timed runs. |
+| `--out` | `runs/bench/latest.json` | Where the JSON result is written. |
+
+### `pv-infer`: run on a video or webcam
+
+Detects on each frame, draws boxes and fps, and optionally writes an annotated video or opens a live window.
+
+```bash
+# video file -> annotated video
 uv run pv-infer --source data/videos/clip.mp4 --weights runs/export/model.onnx --size 64 --out runs/out.mp4
 
 # laptop webcam, live window (press q to quit)
-uv run pv-infer --source 0 --show
+uv run pv-infer --source 0 --weights runs/export/model.onnx --size 64 --show
 ```
 
-Omit `--weights` on `pv-infer` / `pv-bench` to use the dummy detector, which only checks the video plumbing.
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--source` | required | Video path, or a camera index (`0` is the laptop webcam). |
+| `--weights` | none | ONNX model. Omit to use the dummy detector, which draws a fixed box and only checks the video plumbing. |
+| `--out` | none | Save the annotated video here. |
+| `--fps` | `10` | Process this many frames per second (extra frames are skipped). |
+| `--conf` | `0.25` | Drop detections below this confidence. |
+| `--size` | `640` | Model input size. |
+| `--show` | off | Show a live window. |
 
 On macOS, grant camera access to your terminal (System Settings > Privacy & Security > Camera) before using `--source 0`.
+
+### Other useful commands
+
+| Command | What it does |
+| --- | --- |
+| `uv run pytest` | Run all tests. |
+| `uv run ruff check . && uv run ruff format --check .` | Lint and format check. |
+| `uv run mypy packages` | Type check. |
+| `uv run pre-commit install` | Run ruff and file checks automatically on every commit. |
 
 ## Layout
 
@@ -64,9 +146,4 @@ The LOCO loader is not wired into `pv-train` yet; until then use `data=synthetic
 
 ## Development
 
-```bash
-uv run pre-commit install   # ruff and file hygiene on every commit
-uv run ruff check . && uv run ruff format --check . && uv run mypy packages && uv run pytest
-```
-
-CI runs the same checks on every push and pull request. Commits are small and conventional (`feat:`, `fix:`, `build:`, `chore:`, `docs:`, `test:`, `ci:`) so each is easy to revert.
+CI runs lint, types, tests and a package build on every push and pull request. Commits are small and conventional (`feat:`, `fix:`, `build:`, `chore:`, `docs:`, `test:`, `ci:`) so each is easy to revert.
