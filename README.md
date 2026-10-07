@@ -41,6 +41,8 @@ uv run pytest                             # sanity check
 
 ## How the pieces fit
 
+Diagrams of both setups, including what is not built yet, are in [docs/post-inference.md](docs/post-inference.md).
+
 **On your laptop (the demo):** everything runs on one machine.
 
 ```text
