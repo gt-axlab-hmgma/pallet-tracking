@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { distance } from "@/lib/geometry";
 import type { DemoState, Point } from "@/lib/types";
 import { DraftLayer } from "./DraftLayer";
 import type { Mode } from "./Toolbar";
+import { VertexHandles } from "./VertexHandles";
 import { ZoneLayer } from "./ZoneLayer";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
   selectedZone: string | null;
   onSelectZone: (id: string | null) => void;
   onCreateZone: (polygon: Point[]) => void;
+  onEditZone: (id: string, polygon: Point[]) => void;
 }
 
 const CLOSE_RADIUS_PX = 12; // on-screen distance within which a click closes the polygon
@@ -22,13 +24,40 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The camera frame with zones on top. SVG user units are image pixels, so coordinates are 1:1. */
-export function Stage({ state, mode, selectedZone, onSelectZone, onCreateZone }: Props) {
+export function Stage({
+  state,
+  mode,
+  selectedZone,
+  onSelectZone,
+  onCreateZone,
+  onEditZone,
+}: Props) {
   const [w, h] = state.image_size;
   const svgRef = useRef<SVGSVGElement>(null);
   const [px, setPx] = useState(1);
   const [draft, setDraft] = useState<Point[]>([]);
   const [cursor, setCursor] = useState<Point | null>(null);
+  const [vertexDrag, setVertexDrag] = useState<{
+    zoneId: string;
+    index: number;
+    point: Point;
+  } | null>(null);
   const drawing = mode === "draw";
+
+  // While a corner is being dragged the zone is shown with its live shape.
+  const zones = useMemo(
+    () =>
+      state.zones.map((z) =>
+        vertexDrag && z.id === vertexDrag.zoneId
+          ? {
+              ...z,
+              polygon: z.polygon.map((p, i) => (i === vertexDrag.index ? vertexDrag.point : p)),
+            }
+          : z,
+      ),
+    [state.zones, vertexDrag],
+  );
+  const selected = zones.find((z) => z.id === selectedZone) ?? null;
 
   useEffect(() => {
     const el = svgRef.current;
@@ -99,8 +128,24 @@ export function Stage({ state, mode, selectedZone, onSelectZone, onCreateZone }:
     else setDraft((d) => [...d, p]);
   };
 
+  const endVertexDrag = (e: React.PointerEvent) => {
+    if (!vertexDrag) return;
+    const zone = state.zones.find((z) => z.id === vertexDrag.zoneId);
+    setVertexDrag(null);
+    if (!zone) return;
+    const [x, y] = toImage(e);
+    onEditZone(
+      zone.id,
+      zone.polygon.map((p, i) =>
+        i === vertexDrag.index ? ([Math.round(x), Math.round(y)] as Point) : p,
+      ),
+    );
+  };
+
   const hint = !drawing
-    ? "Click a zone to select it. Press Z to draw a new one."
+    ? selected
+      ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
+      : "Click a zone to select it. Press Z to draw a new one."
     : draft.length === 0
       ? "Click to place the first corner. Add as many corners as the floor area needs."
       : draft.length < 3
@@ -128,12 +173,35 @@ export function Stage({ state, mode, selectedZone, onSelectZone, onCreateZone }:
         >
           <image href="/api/frame" width={w} height={h} />
           <ZoneLayer
-            zones={state.zones}
+            zones={zones}
             selectedId={selectedZone}
             px={px}
             interactive={!drawing}
             onSelect={onSelectZone}
           />
+          {!drawing && selected && (
+            <VertexHandles
+              polygon={selected.polygon}
+              px={px}
+              onStart={(index, e) => {
+                e.stopPropagation();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setVertexDrag({
+                  zoneId: selected.id,
+                  index,
+                  point: selected.polygon[index],
+                });
+              }}
+              onMove={(e) => {
+                if (vertexDrag)
+                  setVertexDrag({
+                    ...vertexDrag,
+                    point: toImage(e),
+                  });
+              }}
+              onEnd={endVertexDrag}
+            />
+          )}
           <DraftLayer
             points={draft}
             cursor={cursor}

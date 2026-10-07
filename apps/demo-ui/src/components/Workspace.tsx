@@ -8,6 +8,7 @@ import type { Point } from "@/lib/types";
 import { NoticeBar } from "./NoticeBar";
 import { Stage } from "./Stage";
 import { type Mode, Toolbar } from "./Toolbar";
+import { ZonePanel } from "./ZonePanel";
 import { TopBar } from "./TopBar";
 
 export function Workspace() {
@@ -28,6 +29,35 @@ export function Workspace() {
     [state, saveZones],
   );
 
+  const editZone = useCallback(
+    (id: string, polygon: Point[]) => {
+      if (!state) return;
+      saveZones(state.zones.map((z) => (z.id === id ? { ...z, polygon } : z)));
+    },
+    [state, saveZones],
+  );
+
+  const deleteZone = useCallback(
+    (id: string) => {
+      if (!state) return;
+      saveZones(state.zones.filter((z) => z.id !== id));
+      setSelectedZone((cur) => (cur === id ? null : cur));
+    },
+    [state, saveZones],
+  );
+
+  const renameZone = useCallback(
+    (id: string, next: string): string | null => {
+      if (!state) return null;
+      if (!next) return "A zone needs a name.";
+      if (state.zones.some((z) => z.id === next)) return `"${next}" is already used.`;
+      saveZones(state.zones.map((z) => (z.id === id ? { ...z, id: next } : z)));
+      setSelectedZone((cur) => (cur === id ? next : cur));
+      return null;
+    },
+    [state, saveZones],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target;
@@ -35,10 +65,14 @@ export function Workspace() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "v" || e.key === "V") setMode("select");
       else if (e.key === "z" || e.key === "Z") setMode("draw");
+      else if ((e.key === "Delete" || e.key === "Backspace") && mode === "select" && selectedZone) {
+        e.preventDefault();
+        deleteZone(selectedZone);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [mode, selectedZone, deleteZone]);
 
   return (
     <div className="grid h-full grid-rows-[40px_1fr]">
@@ -49,6 +83,19 @@ export function Workspace() {
           aria-label="Tools"
         >
           <Toolbar mode={mode} onChange={setMode} />
+          {state && (
+            <ZonePanel
+              zones={state.zones}
+              objects={state.objects}
+              selectedId={selectedZone}
+              onSelect={(id) => {
+                setMode("select");
+                setSelectedZone(id);
+              }}
+              onRename={renameZone}
+              onDelete={deleteZone}
+            />
+          )}
         </aside>
         <main className="relative min-h-0 min-w-0 bg-stage" aria-label="Camera view">
           <NoticeBar notice={demo.notice} onDismiss={demo.dismissNotice} />
@@ -59,6 +106,7 @@ export function Workspace() {
               selectedZone={selectedZone}
               onSelectZone={setSelectedZone}
               onCreateZone={createZone}
+              onEditZone={editZone}
             />
           ) : (
             <p className="p-6 text-dim">{demo.notice?.text ?? "Loading…"}</p>
