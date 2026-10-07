@@ -5,6 +5,7 @@ import { useDemo } from "@/hooks/useDemo";
 import { useEventStream } from "@/hooks/useEventStream";
 import { nextZoneId } from "@/lib/geometry";
 import type { Point } from "@/lib/types";
+import { EventFeed } from "./EventFeed";
 import { NoticeBar } from "./NoticeBar";
 import { Stage } from "./Stage";
 import { type Mode, Toolbar } from "./Toolbar";
@@ -154,7 +155,9 @@ export function Workspace() {
             <p className="p-6 text-dim">{demo.notice?.text ?? "Loading…"}</p>
           )}
         </main>
-        <aside className="border-l border-line bg-surface" aria-label="Event feed" />
+        <aside className="min-h-0 border-l border-line bg-surface">
+          <EventFeed events={demo.events} sink={state?.sink} sinkError={demo.sinkError} />
+        </aside>
       </div>
     </div>
   );
