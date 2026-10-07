@@ -44,3 +44,16 @@ def test_events_has_the_planned_indexes(db_url: str) -> None:
     assert "(camera_id, device_ts)" in defs
     assert "(zone_id, device_ts)" in defs
     assert "(device_id, seq)" in defs
+
+
+def test_zone_configs_records_who_saved_each_version(db_url: str) -> None:
+    with psycopg.connect(db_url) as conn:
+        cols = {
+            r[0]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'zone_configs'"
+            )
+        }
+        assert {"saved_by", "image_size", "zones", "version", "camera_id"} <= cols
+        assert applied_versions(conn)[-1] >= "002_zone_config_saved_by"
