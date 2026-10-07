@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 
 Point = tuple[float, float]
@@ -27,3 +28,49 @@ def point_in_polygon(point: Point, polygon: Polygon) -> bool:
             if x < x_cross:
                 inside = not inside
     return inside
+
+
+class PolygonError(ValueError):
+    """Raised when a drawn polygon cannot be used as a zone."""
+
+
+def _orient(a: Point, b: Point, c: Point) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool:
+    o1, o2, o3, o4 = _orient(a, b, c), _orient(a, b, d), _orient(c, d, a), _orient(c, d, b)
+    if ((o1 > 0) != (o2 > 0)) and ((o3 > 0) != (o4 > 0)) and 0 not in (o1, o2, o3, o4):
+        return True
+    return (
+        (o1 == 0 and _on_segment(c, a, b))
+        or (o2 == 0 and _on_segment(d, a, b))
+        or (o3 == 0 and _on_segment(a, c, d))
+        or (o4 == 0 and _on_segment(b, c, d))
+    )
+
+
+def validate_polygon(polygon: Polygon) -> None:
+    """Reject polygons that cannot be a zone: too few vertices, NaN, zero area, self-crossing."""
+    n = len(polygon)
+    if n < 3:
+        raise PolygonError("polygon needs at least 3 vertices")
+    if not all(math.isfinite(v) for p in polygon for v in p):
+        raise PolygonError("polygon coordinates must be finite")
+    if any(polygon[i] == polygon[(i + 1) % n] for i in range(n)):
+        raise PolygonError("polygon has duplicate consecutive vertices")
+    for i in range(n):
+        for j in range(i + 1, n):
+            adjacent = j == i + 1 or (i == 0 and j == n - 1)
+            if adjacent:
+                continue
+            if _segments_intersect(
+                polygon[i], polygon[(i + 1) % n], polygon[j], polygon[(j + 1) % n]
+            ):
+                raise PolygonError("polygon edges self-intersect")
+    area2 = sum(
+        polygon[i][0] * polygon[(i + 1) % n][1] - polygon[(i + 1) % n][0] * polygon[i][1]
+        for i in range(n)
+    )
+    if area2 == 0:
+        raise PolygonError("polygon has zero area")
