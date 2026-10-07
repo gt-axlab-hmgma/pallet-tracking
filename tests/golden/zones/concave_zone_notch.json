@@ -1,0 +1,103 @@
+{
+  "description": "L-shaped zone: the notch is outside even though it is inside the bounding box.",
+  "hysteresis_frames": 1,
+  "zones": [
+    {
+      "id": "l",
+      "polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          0
+        ],
+        [
+          100,
+          40
+        ],
+        [
+          40,
+          40
+        ],
+        [
+          40,
+          100
+        ],
+        [
+          0,
+          100
+        ]
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            10,
+            60,
+            30,
+            80
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "enter",
+          "zone_id": "l",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            70,
+            60,
+            90,
+            80
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "exit",
+          "zone_id": "l",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            70,
+            0,
+            90,
+            20
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "enter",
+          "zone_id": "l",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    }
+  ]
+}

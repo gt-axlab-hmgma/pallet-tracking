@@ -1,0 +1,159 @@
+{
+  "description": "One pallet leaves zone a and enters zone b; a leave always precedes the join.",
+  "hysteresis_frames": 1,
+  "zones": [
+    {
+      "id": "a",
+      "polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          0
+        ],
+        [
+          100,
+          100
+        ],
+        [
+          0,
+          100
+        ]
+      ]
+    },
+    {
+      "id": "b",
+      "polygon": [
+        [
+          200,
+          0
+        ],
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          100
+        ],
+        [
+          200,
+          100
+        ]
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "enter",
+          "zone_id": "a",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            50,
+            30,
+            70,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            140,
+            30,
+            160,
+            50
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "exit",
+          "zone_id": "a",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            240,
+            30,
+            260,
+            50
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "enter",
+          "zone_id": "b",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "exit",
+          "zone_id": "b",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        },
+        {
+          "event_type": "enter",
+          "zone_id": "a",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "description": "With k=3 a flicker does not exit; three consecutive frames outside do.",
+  "hysteresis_frames": 3,
+  "zones": [
+    {
+      "id": "a",
+      "polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          100,
+          0
+        ],
+        [
+          100,
+          100
+        ],
+        [
+          0,
+          100
+        ]
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "enter",
+          "zone_id": "a",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            140,
+            30,
+            160,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            40,
+            30,
+            60,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            140,
+            30,
+            160,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            140,
+            30,
+            160,
+            50
+          ]
+        }
+      ],
+      "expect": []
+    },
+    {
+      "tracks": [
+        {
+          "track_id": 1,
+          "object_type": "pallet_type_a",
+          "box": [
+            140,
+            30,
+            160,
+            50
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "event_type": "exit",
+          "zone_id": "a",
+          "track_id": 1,
+          "object_type": "pallet_type_a"
+        }
+      ]
+    }
+  ]
+}
