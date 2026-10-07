@@ -12,12 +12,30 @@ afterEach(() => vi.unstubAllGlobals());
 describe("api", () => {
   it("sends zones as a JSON PUT", async () => {
     const fn = mockFetch(200, { zones: [], events: [], sink_error: null });
-    await api.saveZones([{ id: "a", polygon: [[0, 0], [1, 0], [1, 1]] }]);
+    await api.saveZones([
+      {
+        id: "a",
+        polygon: [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+      },
+    ]);
     const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/zones");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body as string)).toEqual({
-      zones: [{ id: "a", polygon: [[0, 0], [1, 0], [1, 1]] }],
+      zones: [
+        {
+          id: "a",
+          polygon: [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+          ],
+        },
+      ],
     });
   });
 
@@ -35,7 +53,10 @@ describe("api", () => {
   });
 
   it("explains when the API is unreachable", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("fetch failed"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("fetch failed"))),
+    );
     const err = await api.getState().catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.message).toContain("pv-demo");

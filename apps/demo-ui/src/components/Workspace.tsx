@@ -44,7 +44,10 @@ export function Workspace() {
     <div className="grid h-full grid-rows-[40px_1fr]">
       <TopBar state={state} status={status} />
       <div className="grid min-h-0 grid-cols-[280px_1fr_320px]">
-        <aside className="flex flex-col gap-4 border-r border-line bg-surface p-3" aria-label="Tools">
+        <aside
+          className="flex flex-col gap-4 border-r border-line bg-surface p-3"
+          aria-label="Tools"
+        >
           <Toolbar mode={mode} onChange={setMode} />
         </aside>
         <main className="relative min-h-0 min-w-0 bg-stage" aria-label="Camera view">

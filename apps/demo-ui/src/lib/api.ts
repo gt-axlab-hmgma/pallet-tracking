@@ -62,8 +62,7 @@ export const api = {
       ...json(patch),
     }),
 
-  deleteObject: (id: number) =>
-    request<MutationResult>(`/api/objects/${id}`, { method: "DELETE" }),
+  deleteObject: (id: number) => request<MutationResult>(`/api/objects/${id}`, { method: "DELETE" }),
 
   recentEvents: (limit = 200) =>
     request<{ events: ZoneEvent[] }>(`/api/events?limit=${limit}`).then((r) => r.events),

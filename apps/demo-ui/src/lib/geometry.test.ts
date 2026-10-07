@@ -12,22 +12,47 @@ import {
 
 describe("centroid", () => {
   it("is the centre of a square", () => {
-    expect(centroid([[0, 0], [10, 0], [10, 10], [0, 10]])).toEqual([5, 5]);
+    expect(
+      centroid([
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ]),
+    ).toEqual([5, 5]);
   });
 
   it("stays inside an L shape, unlike the bounding-box centre", () => {
-    const [x, y] = centroid([[0, 0], [100, 0], [100, 40], [40, 40], [40, 100], [0, 100]]);
+    const [x, y] = centroid([
+      [0, 0],
+      [100, 0],
+      [100, 40],
+      [40, 40],
+      [40, 100],
+      [0, 100],
+    ]);
     expect(x).toBeLessThan(50);
     expect(y).toBeLessThan(50);
   });
 
   it("is independent of winding order", () => {
-    const sq: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const sq: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ];
     expect(centroid([...sq].reverse())).toEqual(centroid(sq));
   });
 
   it("falls back to the mean for a degenerate polygon", () => {
-    expect(centroid([[0, 0], [5, 5], [10, 10]])).toEqual([5, 5]);
+    expect(
+      centroid([
+        [0, 0],
+        [5, 5],
+        [10, 10],
+      ]),
+    ).toEqual([5, 5]);
   });
 });
 
@@ -45,7 +70,11 @@ describe("boxes", () => {
   });
 
   it("default boxes scale with the frame and stay inside it", () => {
-    for (const size of [[1280, 720], [640, 480], [1920, 1080]] as [number, number][]) {
+    for (const size of [
+      [1280, 720],
+      [640, 480],
+      [1920, 1080],
+    ] as [number, number][]) {
       for (let i = 0; i < 12; i++) {
         const [x1, y1, x2, y2] = defaultBox(size, i);
         expect(x1).toBeGreaterThanOrEqual(0);

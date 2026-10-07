@@ -15,7 +15,11 @@ const themeScript = `try{var t=localStorage.getItem("pv-theme");if(t==="light"||
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${ui.variable} ${display.variable} h-full`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${ui.variable} ${display.variable} h-full`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
