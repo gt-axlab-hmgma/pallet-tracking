@@ -9,6 +9,8 @@ from palletvision_events.outbox import Outbox
 from palletvision_events.record import ZoneEvent
 from palletvision_events.sinks import EventSink, JsonlSink, StdoutSink
 from palletvision_events.sinks_postgres import PostgresSink
+from palletvision_events.zone_store import ZoneConfigStore
+from palletvision_zones.config import ZoneConfig
 
 
 def _with_timeout(url: str, seconds: int = 2) -> str:
@@ -81,3 +83,55 @@ def build_sink(settings: Settings) -> tuple[SafeSink, int, list[str]]:
             "on each move. Start it with: docker compose up -d db && uv run pv-db migrate"
         )
     return SafeSink(lambda: PostgresSink(url)), start, warnings
+
+
+class SafeConfigStore:
+    """Stores zone versions in Postgres without ever breaking the demo if the database is down.
+
+    Methods return an error string (or None) instead of raising. A version is only inserted
+    once per run; the connection is dropped after a failure and retried on the next call.
+    """
+
+    def __init__(self, make: Callable[[], ZoneConfigStore]) -> None:
+        self._make = make
+        self._store: ZoneConfigStore | None = None
+        self._stored: tuple[str, int] | None = None
+
+    def latest_version(self, camera_id: str) -> int:
+        """Highest stored version, or 0 when there is none or the database is unreachable."""
+        try:
+            if self._store is None:
+                self._store = self._make()
+            return self._store.latest_version(camera_id)
+        except Exception:
+            self.close()
+            return 0
+
+    def ensure(self, config: ZoneConfig) -> str | None:
+        """Make sure this exact version is stored. Returns an error message, or None."""
+        key = (config.camera_id, config.version)
+        if self._stored == key:
+            return None
+        try:
+            if self._store is None:
+                self._store = self._make()
+            self._store.save(config)
+            self._stored = key
+            return None
+        except Exception as exc:
+            self.close()
+            return f"{type(exc).__name__}: {exc}"
+
+    def close(self) -> None:
+        if self._store is not None:
+            with contextlib.suppress(Exception):
+                self._store.close()
+            self._store = None
+
+
+def build_config_store(settings: Settings) -> SafeConfigStore | None:
+    """Only the Postgres sink stores zone versions; the edge path will sync them later."""
+    if settings.sink != "postgres":
+        return None
+    url = _with_timeout(settings.db_url or connection_url())
+    return SafeConfigStore(lambda: ZoneConfigStore(url, saved_by="demo"))

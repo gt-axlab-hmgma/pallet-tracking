@@ -7,7 +7,7 @@ from typing import Any
 
 from palletvision_demo.frame import encode_jpeg, load_reference_frame
 from palletvision_demo.settings import Settings
-from palletvision_demo.sinks import build_sink
+from palletvision_demo.sinks import build_config_store, build_sink
 from palletvision_demo.stream import EventBus
 from palletvision_events.record import EventFactory, describe
 from palletvision_zones.config import (
@@ -52,6 +52,7 @@ class Result:
 
     events: list[dict[str, Any]]
     sink_error: str | None = None
+    config_error: str | None = None  # the zone version could not be stored in the database
 
 
 class DemoState:
@@ -72,6 +73,7 @@ class DemoState:
         self.log: deque[dict[str, Any]] = deque(maxlen=500)
         self._next_id = 1
         self.sink, start_seq, sink_warnings = build_sink(settings)
+        self.config_store = build_config_store(settings)
         self.warnings.extend(sink_warnings)
         self.factory = EventFactory(
             settings.device_id,
@@ -99,10 +101,17 @@ class DemoState:
     def replace_zones(self, raw_zones: list[dict[str, Any]]) -> Result:
         """Validate and save a new zone list (new config version). Raises ZoneInputError."""
         with self.lock:
+            # Continue numbering from the database too, so a version never collides with one
+            # saved by an earlier session whose yaml file is gone.
+            stored = (
+                self.config_store.latest_version(self.settings.camera_id)
+                if self.config_store
+                else 0
+            )
             candidate = {
                 "camera_id": self.settings.camera_id,
                 "image_size": list(self.image_size),
-                "version": self.config.version + 1,
+                "version": max(self.config.version, stored) + 1,
                 "zones": raw_zones,
             }
             try:
@@ -114,19 +123,23 @@ class DemoState:
             self.config = config
             self.factory.config_version = config.version
             self.engine.set_zones(config.zones)
-            return self._emit(self.engine.update(self._tracks()))
+            return self._emit(self.engine.update(self._tracks()), store_config=True)
 
     def _tracks(self) -> list[Track]:
         return [Track(o.id, o.object_type, o.box) for o in self.objects.values()]
 
-    def _emit(self, transitions: list[Transition]) -> Result:
+    def _emit(self, transitions: list[Transition], store_config: bool = False) -> Result:
         events = [self.factory.make(t) for t in transitions]
+        # The zone version an event refers to must be in the database before the event is.
+        config_error = None
+        if self.config_store and (events or store_config):
+            config_error = self.config_store.ensure(self.config)
         sink_error = self.sink.write(events) if events else None
         dicts = [{**e.to_dict(), "message": describe(e)} for e in events]
         for d in dicts:
             self.log.append(d)
             self.bus.publish(d)
-        return Result(dicts, sink_error)
+        return Result(dicts, sink_error, config_error)
 
     def recent_events(self, limit: int) -> list[dict[str, Any]]:
         with self.lock:

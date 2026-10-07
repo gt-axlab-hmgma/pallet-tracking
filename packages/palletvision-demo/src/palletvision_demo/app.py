@@ -30,7 +30,11 @@ class ObjectUpdate(BaseModel):
 
 
 def _result(result: Result) -> dict[str, Any]:
-    return {"events": result.events, "sink_error": result.sink_error}
+    return {
+        "events": result.events,
+        "sink_error": result.sink_error,
+        "config_error": result.config_error,
+    }
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
