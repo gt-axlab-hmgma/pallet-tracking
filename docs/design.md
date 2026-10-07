@@ -195,6 +195,22 @@ Per track:
 - A lost track re-appearing at the same spot within a short window is merged (cheap ID-switch fix).
 - Later: per-camera homography → zones in floor coordinates (fusion with the Task 1 digital twin).
 
+## Events and distributed storage
+
+Implemented in the zone demo (`palletvision-zones`, `palletvision-events`); the Jetson side runs the same code paths once the real detector feeds the engine.
+
+```text
+Jetson (many)                                            Central, lab-controlled
+tracks -> zone engine -> event -> outbox (SQLite) -> sync agent -> [ingest API, later] -> Postgres
+```
+
+- **Events are the contract.** `contracts/events.schema.json` defines an `enter` / `exit` record: `event_id` (UUID made on the device), `device_id`, `camera_id`, per-device `seq`, `zone_id`, `object_type`, `track_id`, `config_version`, `source` (`mock` or `model`), `device_ts`. A C++ runtime only has to emit the same JSON.
+- **The inference loop never waits on the network.** An event is one small local write to a durable SQLite outbox (WAL mode, about 0.03 ms measured). A separate sync agent (`pv-sync`) drains it in order and marks a batch sent only after the sink accepted it. Failures are retried with capped exponential backoff, so an outage delays events but loses none.
+- **Idempotent writes.** Postgres inserts use `ON CONFLICT (event_id, device_ts) DO NOTHING`, so a resend after a lost acknowledgement cannot duplicate a row. `seq` lets the server spot gaps per device. Both the device clock (`device_ts`) and the server clock (`received_at`) are stored.
+- **Postgres layout.** `events` is range-partitioned by month (partitions are created on demand), has no foreign keys on the hot table, and carries three indexes: `(camera_id, device_ts)`, `(zone_id, device_ts)`, `(device_id, seq)`. `devices`, `cameras` and versioned `zone_configs` describe the sources. Dwell time is the `zone_visits` view over enter/exit pairs, never stored. Batched inserts measured about 17k events/s against about 1k row by row on a laptop.
+- **Why an ingest service later.** With many Jetsons, each holding a database connection and credentials does not scale. A small HTTP service in front of Postgres would own a pooled connection set and validate events against the schema, and Jetsons would hold only a revocable token. Because the edge sends plain JSON over HTTPS, the Python 3.6 / C++ edge needs no Postgres client.
+- **Engine rules.** A track is in a zone when the bottom centre of its box is inside the polygon (ray casting, so concave and slanted polygons work; overlapping zones allowed). Membership flips after `k` consecutive disagreeing frames (hysteresis). A zone-to-zone move is an `exit` followed by an `enter`. The engine is plain loops with no numpy; `tests/golden/zones/*.json` are language-neutral fixtures the C++ port must reproduce.
+
 ## Edge target: original Jetson Nano
 
 JetPack 4.6.x (L4T r32.7): Ubuntu 18.04, CUDA 10.2, TensorRT 8.2, Python 3.6.
