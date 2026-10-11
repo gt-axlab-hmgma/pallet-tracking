@@ -275,11 +275,24 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
 | `train.output_dir` | `runs/stage1` | Where `last.pt`, `best.pt` and `metrics.jsonl` are written. |
+| `train.val_every` | `0` | Score the LOCO validation split with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. `0` never scores. Needs `data=loco`. |
+| `data.val_limit` | `null` | Score only the first N validation images (smoke runs). |
 | `train.resume` | `null` | `null` starts fresh, a path resumes from that checkpoint, `auto` resumes from `<output_dir>/last.pt` if it exists and starts fresh if not. Needs the same `train.epochs`. |
 
 #### Stopping and resuming
 
 A checkpoint holds the weights, the optimiser and the state of every random number generator, so a resumed run follows exactly the loss curve an uninterrupted one would. If a run dies or you stop it, start it again with the same command plus `train.resume=auto`; it continues from the last finished epoch (the unfinished one is redone from its start) and trims the log so each step appears once. Checkpoints are written to a temporary file and renamed, so a crash while saving never damages the previous one. `train.max_steps` is for quick smoke tests; a run cut short by it leaves a checkpoint for inspection, and resuming it replays the unfinished epoch.
+
+### `pv-eval`: score a checkpoint
+
+Scores a checkpoint on LOCO the standard COCO way, so you can tell whether a run learned anything that generalises. It rebuilds the model from the config saved in the checkpoint.
+
+```bash
+uv run pv-eval --checkpoint runs/stage1/best.pt                        # the validation split (sub-sets 1 and 4)
+uv run pv-eval --checkpoint runs/stage1/last.pt --split train --limit 8 --out runs/eval.json
+```
+
+It prints mAP50-95 (the headline number), mAP50, mAP75, AP for small, medium and large objects, average recall, and the confidence threshold that gives the best F1, which is the value to pass to `pv-infer --conf`. Details that matter for the numbers to mean something: images are letterboxed and nothing else, boxes are mapped back to the original image's pixels, the score threshold is 0.001 (mAP needs the weak tail, not a 0.25 cut-off), and up to 300 detections per image are kept (LOCO images can hold over 100 objects). The full validation split (2,277 images) takes about 45 seconds on the M5 Pro. The validation split is split by recording site, so it measures how the model does in places it has not seen; it is not a test set, so do not tune against it too long.
 
 ### `pv-overfit`: the overfit gate
 
