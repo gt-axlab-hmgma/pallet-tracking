@@ -15,6 +15,7 @@ members = [
     "palletvision-events",
     "palletvision-infer",
     "palletvision-model",
+    "palletvision-preprocess",
     "palletvision-train",
     "palletvision-zones",
 ]
@@ -1311,6 +1312,7 @@ dependencies = [
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "onnxruntime" },
     { name = "opencv-python" },
+    { name = "palletvision-preprocess" },
     { name = "torch" },
 ]
 
@@ -1319,6 +1321,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "onnxruntime", specifier = ">=1.18" },
     { name = "opencv-python", specifier = ">=4.10" },
+    { name = "palletvision-preprocess", editable = "packages/palletvision-preprocess" },
     { name = "torch", specifier = ">=2.4" },
 ]
 
@@ -1334,6 +1337,22 @@ dependencies = [
 requires-dist = [{ name = "torch", specifier = ">=2.4" }]
 
 [[package]]
+name = "palletvision-preprocess"
+version = "0.1.0"
+source = { editable = "packages/palletvision-preprocess" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "opencv-python" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "opencv-python", specifier = ">=4.10" },
+]
+
+[[package]]
 name = "palletvision-train"
 version = "0.1.0"
 source = { editable = "packages/palletvision-train" }
@@ -1345,6 +1364,7 @@ dependencies = [
     { name = "onnx" },
     { name = "opencv-python" },
     { name = "palletvision-model" },
+    { name = "palletvision-preprocess" },
     { name = "torch" },
 ]
 
@@ -1356,6 +1376,7 @@ requires-dist = [
     { name = "onnx", specifier = ">=1.16" },
     { name = "opencv-python", specifier = ">=4.10" },
     { name = "palletvision-model", editable = "packages/palletvision-model" },
+    { name = "palletvision-preprocess", editable = "packages/palletvision-preprocess" },
     { name = "torch", specifier = ">=2.4" },
 ]
 

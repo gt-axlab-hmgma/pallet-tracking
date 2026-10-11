@@ -347,6 +347,7 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | --- | --- |
 | `packages/palletvision-model` | Pure `nn.Module`s. Imports only `torch`. |
 | `packages/palletvision-train` | Trainer, datasets, ONNX export (`pv-train`, `pv-export`). |
+| `packages/palletvision-preprocess` | Letterbox shared by training and inference, so both see identical pixels. |
 | `packages/palletvision-infer` | Frame source, backends (torch, onnxruntime), overlay, benchmark (`pv-infer`, `pv-bench`). |
 | `packages/palletvision-zones` | Zone geometry and the enter/exit engine. Plain Python with no heavy dependencies, written to be ported to C++. |
 | `packages/palletvision-events` | Event records, sinks (jsonl, SQLite outbox, Postgres), migrations, `pv-db` and `pv-sync`. |
