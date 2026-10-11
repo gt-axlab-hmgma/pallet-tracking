@@ -1,4 +1,4 @@
-epochs: 100
+epochs: 150  # the report's pretraining recipe (Table S2)
 batch_size: 16
 optimizer: musgd  # musgd (YOLO26's, lr 0.01), sgd (lr 0.01) or adamw (lr 0.001)
 lr: 0.01  # YOLO26 report, Table S2
