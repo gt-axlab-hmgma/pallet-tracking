@@ -5,3 +5,4 @@ weight_decay: 0.0005
 amp: false  # fp16 autocast on cuda and mps only; keep off until it is validated (R4, #38)
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1
+resume: null  # null starts fresh; a checkpoint path resumes it; "auto" resumes <output_dir>/last.pt if present
