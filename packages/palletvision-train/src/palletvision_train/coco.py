@@ -15,8 +15,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
 from torch.utils.data import Dataset
 
+REPO = Path(__file__).resolve().parents[4]
 DATASET_PREFIX = "/dataset/"  # how the annotation files spell the root of the image tree
 MIN_SIDE = 1.0  # boxes with a side this small or smaller are annotation noise
 
@@ -119,3 +121,16 @@ class CocoDetection(Dataset[tuple[np.ndarray, np.ndarray]]):
                 f"{record.width}x{record.height} in the annotations"
             )
         return image, record.labels
+
+
+def loco_reader(split: str, repo: Path = REPO) -> CocoDetection:
+    """The LOCO ``train`` or ``val`` split exactly as ``configs/data/loco.yaml`` lists it.
+
+    Paths in the config are relative to the repository, so they are resolved against ``repo``;
+    the classes are the stage-1 classes of ``contracts/classes.yaml``.
+    """
+    data = yaml.safe_load((repo / "configs/data/loco.yaml").read_text())
+    data["root"] = str(repo / data["root"])
+    data["annotations"] = {k: [str(repo / f) for f in v] for k, v in data["annotations"].items()}
+    classes = yaml.safe_load((repo / "contracts/classes.yaml").read_text())["stage1"]
+    return CocoDetection.from_config(data, split, classes)

@@ -2,26 +2,18 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-import yaml
 from torch.utils.data import Dataset, Subset
 
-from palletvision_train.coco import CocoDetection
+from palletvision_train.coco import loco_reader
 from palletvision_train.data import LetterboxedDataset, Sample
 from palletvision_train.overfit import run_gate
 from palletvision_train.synthetic import SyntheticBoxes
-
-REPO = Path(__file__).resolve().parents[4]
 
 
 def build(source: str, images: int, size: int) -> Dataset[Sample]:
     if source == "synthetic":
         return LetterboxedDataset(SyntheticBoxes(images, size), size)
-    data = yaml.safe_load((REPO / "configs/data/loco.yaml").read_text())
-    data["root"] = str(REPO / data["root"])
-    data["annotations"] = {k: [str(REPO / f) for f in v] for k, v in data["annotations"].items()}
-    classes = yaml.safe_load((REPO / "contracts/classes.yaml").read_text())["stage1"]
-    reader = CocoDetection.from_config(data, "train", classes)
-    return Subset(LetterboxedDataset(reader, size), range(images))
+    return Subset(LetterboxedDataset(loco_reader("train"), size), range(images))
 
 
 def main(argv: Sequence[str] | None = None) -> None:
