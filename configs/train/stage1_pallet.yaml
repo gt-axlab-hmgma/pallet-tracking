@@ -2,6 +2,6 @@ epochs: 100
 batch_size: 16
 lr: 0.001
 weight_decay: 0.0005
-amp: true  # fp16 autocast on cuda and mps only
+amp: false  # fp16 autocast on cuda and mps only; keep off until it is validated (R4, #38)
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1

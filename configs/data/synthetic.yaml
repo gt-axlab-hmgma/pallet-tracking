@@ -2,3 +2,4 @@
 name: synthetic
 size: 640
 num_samples: 64
+limit: null

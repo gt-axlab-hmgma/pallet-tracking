@@ -8,8 +8,6 @@ import yaml
 
 from palletvision_model.tiny import TinyDetector
 from palletvision_train.export import export_onnx, main
-from palletvision_train.synthetic import SyntheticBoxes
-from palletvision_train.trainer import train
 
 CONTRACT = Path(__file__).resolve().parents[3] / "contracts" / "model_io.yaml"
 
@@ -33,10 +31,8 @@ def test_export_matches_torch_and_contract(tmp_path: Path) -> None:
 
 
 def test_cli_exports_checkpoint(tmp_path: Path) -> None:
-    result = train(
-        TinyDetector(input_size=64), SyntheticBoxes(n=4, size=64), device="cpu", epochs=1,
-        batch_size=2, lr=1e-3, amp=False, max_steps=None, output_dir=tmp_path,
-    )  # fmt: skip
+    checkpoint = tmp_path / "last.pt"  # the format the trainer writes: {"model": state_dict, ...}
+    torch.save({"model": TinyDetector(input_size=64).state_dict(), "steps": 0}, checkpoint)
     out = tmp_path / "model.onnx"
-    main(["--checkpoint", str(result.checkpoint), "--size", "64", "--out", str(out)])
+    main(["--checkpoint", str(checkpoint), "--size", "64", "--out", str(out)])
     assert out.exists()
