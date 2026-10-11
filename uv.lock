@@ -1339,8 +1339,11 @@ version = "0.1.0"
 source = { editable = "packages/palletvision-train" }
 dependencies = [
     { name = "hydra-core" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "omegaconf" },
     { name = "onnx" },
+    { name = "opencv-python" },
     { name = "palletvision-model" },
     { name = "torch" },
 ]
@@ -1348,8 +1351,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "hydra-core", specifier = ">=1.3" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "omegaconf", specifier = ">=2.3" },
     { name = "onnx", specifier = ">=1.16" },
+    { name = "opencv-python", specifier = ">=4.10" },
     { name = "palletvision-model", editable = "packages/palletvision-model" },
     { name = "torch", specifier = ">=2.4" },
 ]
