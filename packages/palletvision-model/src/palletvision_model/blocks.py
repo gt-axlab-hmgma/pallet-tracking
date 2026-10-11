@@ -115,6 +115,8 @@ class C3k2(nn.Module):
        channels, then a final 1x1 Conv mixes them to ``c_out``.
 
     ``c3k`` picks the inner block: ``C3k`` (bigger, two repeats each) or a plain ``Bottleneck``.
+    ``attn`` instead makes each inner block a ``Bottleneck`` followed by a ``PSABlock``
+    (attention); it takes priority over ``c3k``.
     """
 
     def __init__(
@@ -126,17 +128,24 @@ class C3k2(nn.Module):
         expand: float = 0.5,
         groups: int = 1,
         shortcut: bool = True,
+        attn: bool = False,
     ) -> None:
         super().__init__()
         self.c = int(c_out * expand)
         self.cv1 = Conv(c_in, 2 * self.c, 1)
         self.cv2 = Conv((2 + n) * self.c, c_out, 1)
-        self.m = nn.ModuleList(
-            C3k(self.c, self.c, 2, shortcut, groups)
-            if c3k
-            else Bottleneck(self.c, self.c, shortcut, groups)
-            for _ in range(n)
-        )
+
+        def inner() -> nn.Module:
+            if attn:
+                return nn.Sequential(
+                    Bottleneck(self.c, self.c, shortcut, groups),
+                    PSABlock(self.c, attn_ratio=0.5, num_heads=max(self.c // 64, 1)),
+                )
+            if c3k:
+                return C3k(self.c, self.c, 2, shortcut, groups)
+            return Bottleneck(self.c, self.c, shortcut, groups)
+
+        self.m = nn.ModuleList(inner() for _ in range(n))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         y = list(self.cv1(x).chunk(2, dim=1))
