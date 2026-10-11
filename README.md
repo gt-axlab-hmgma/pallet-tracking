@@ -269,7 +269,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `data.num_workers` | `4` (loco) | Loader worker processes. |
 | `model.input_size` | `640` | Model input size; images are letterboxed to it. Keep equal to `data.size` for synthetic data. |
 | `device` | `auto` | `auto`, `cpu`, `cuda` or `mps`. |
-| `train.epochs` | `100` | Passes over the data. |
+| `train.epochs` | `150` | Passes over the data (the report's pretraining recipe). About 3 min each on the M5 Pro. |
 | `train.batch_size` | `16` | Images per step. |
 | `train.lr` | `0.001` | Learning rate. |
 | `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
@@ -299,6 +299,14 @@ uv run pv-eval --checkpoint runs/stage1/last.pt --split train --limit 8 --out ru
 ```
 
 It prints mAP50-95 (the headline number), mAP50, mAP75, AP for small, medium and large objects, average recall, and the confidence threshold that gives the best F1, which is the value to pass to `pv-infer --conf`. Details that matter for the numbers to mean something: images are letterboxed and nothing else, boxes are mapped back to the original image's pixels, the score threshold is 0.001 (mAP needs the weak tail, not a 0.25 cut-off), and up to 300 detections per image are kept (LOCO images can hold over 100 objects). The full validation split (2,277 images) takes about 45 seconds on the M5 Pro. The validation split is split by recording site, so it measures how the model does in places it has not seen; it is not a test set, so do not tune against it too long.
+
+### `pv-plot`: draw a run's curves
+
+```bash
+uv run pv-plot runs/stage1            # writes runs/stage1/curves.png (--window sets the smoothing)
+```
+
+Reads `metrics.jsonl` and draws three panels: the loss at every step (faint) and smoothed, for the blended loss and each branch; the loss of each epoch with the validation metric (every `train.val_every` epochs); and the learning rate with the Progressive Loss weight alpha. It works on a run that is still going, so you can check on an overnight run from the log.
 
 ### `pv-overfit`: the overfit gate
 
