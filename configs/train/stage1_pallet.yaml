@@ -1,7 +1,16 @@
 epochs: 100
 batch_size: 16
-lr: 0.001
-weight_decay: 0.0005
+optimizer: musgd  # musgd (YOLO26's, lr 0.01), sgd (lr 0.01) or adamw (lr 0.001)
+lr: 0.01  # YOLO26 report, Table S2
+weight_decay: 0.0005  # at the nominal batch; scaled by the effective batch / nominal_batch
+momentum: 0.937  # (MuSGD and SGD) momentum, or AdamW's first beta; the report prints it rounded to 0.94
+muon_weight: 0.45  # MuSGD: weight of the Muon update (YOLO26n, report Table S4)
+sgd_weight: 0.55  # MuSGD: weight of the SGD update on the same weights
+nominal_batch: 64  # gradient accumulation makes smaller batches act like this one (null: off)
+warmup_epochs: 1  # the learning rate climbs from 0 over these epochs, at least 100 iterations (the report: 1)
+warmup_bias_lr: 0.1  # sgd and musgd: biases start here and fall to the scheduled rate (0.1, our choice; the report does not give it)
+lr_final: 0.01  # the rate at the last epoch, as a fraction of lr
+lr_schedule: linear  # linear or cosine; the report does not say, linear is the usual choice
 amp: false  # fp16 autocast on cuda and mps only; keep off until it is validated (R4, #38)
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1

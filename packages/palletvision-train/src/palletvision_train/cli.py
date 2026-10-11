@@ -92,6 +92,11 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
     return train(
         model, dataset, device=cfg.device, epochs=cfg.train.epochs,
         batch_size=cfg.train.batch_size, lr=cfg.train.lr, weight_decay=cfg.train.weight_decay,
+        optimizer_name=cfg.train.optimizer, momentum=cfg.train.momentum,
+        muon=cfg.train.muon_weight, sgd=cfg.train.sgd_weight,
+        nominal_batch=cfg.train.nominal_batch, warmup_epochs=cfg.train.warmup_epochs,
+        warmup_bias_lr=0.0 if cfg.train.optimizer == "adamw" else cfg.train.warmup_bias_lr,
+        lr_final=cfg.train.lr_final, lr_schedule=cfg.train.lr_schedule,
         amp=cfg.train.amp, max_steps=cfg.train.max_steps, output_dir=cfg.train.output_dir,
         num_workers=cfg.data.get("num_workers", 0), resume=resume_path(cfg),
         metric_fn=build_metric(cfg), metric_every=cfg.train.get("val_every") or 1,

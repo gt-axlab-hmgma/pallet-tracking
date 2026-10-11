@@ -14,6 +14,7 @@ from palletvision_model.loss import DetectionLoss, progressive_alpha
 from palletvision_model.yolo26 import YOLO26
 from palletvision_train.checkpoint import load_checkpoint, save_checkpoint
 from palletvision_train.data import Sample, collate
+from palletvision_train.optim import Schedule, build_optimizer
 from palletvision_train.runlog import RunLog
 
 MAX_GRAD_NORM = 10.0  # a single bad batch must not throw the weights far away
@@ -30,6 +31,7 @@ class TrainResult:
     best: Path | None = None  # best.pt, only when a metric was given
     best_metric: float | None = None
     start_epoch: int = 0  # 0 for a fresh run, the first epoch run after a resume otherwise
+    updates: int = 0  # optimiser updates this call made (fewer than batches when accumulating)
 
 
 def train(
@@ -41,6 +43,15 @@ def train(
     batch_size: int,
     lr: float,
     weight_decay: float = 0.0,
+    optimizer_name: str = "adamw",
+    momentum: float = 0.937,
+    muon: float = 0.45,
+    sgd: float = 0.55,
+    nominal_batch: int | None = None,
+    warmup_epochs: float = 0.0,
+    warmup_bias_lr: float = 0.0,
+    lr_final: float = 1.0,
+    lr_schedule: str = "cosine",
     amp: bool = False,
     max_steps: int | None = None,
     output_dir: Path | str,
@@ -67,17 +78,34 @@ def train(
 
     ``resume`` is a checkpoint to continue from. Weights, optimiser and every random number
     generator are restored, so the resumed run follows the curve an uninterrupted one would. It
-    needs the same ``epochs`` (the one-to-many weight depends on it). A run cut short by
+    needs the same ``epochs`` (the one-to-many weight depends on it).
+
+    Optimiser: ``optimizer_name`` is ``musgd`` (YOLO26's: SGD plus a Muon update on the
+    convolution weights, mixed with weights ``muon`` and ``sgd``), ``sgd`` or ``adamw``, with
+    weight decay on the convolution weights only. ``nominal_batch`` (the guide uses 64) makes
+    small batches behave like one big one: the gradients of ``round(nominal_batch / batch_size)``
+    batches are averaged before each update, and weight decay is scaled by the effective batch
+    over ``nominal_batch``. The learning rate warms up for ``warmup_epochs`` and then decays to
+    ``lr * lr_final`` (see ``Schedule``); the defaults keep it constant.
+
+    A run cut short by
     ``max_steps`` is a smoke test: its last checkpoint is for inspection, and resuming it
     replays the unfinished epoch from its start.
     """
     dev = resolve_device(device)
     model.to(dev).train()
     loss_fn = loss_fn or DetectionLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    accumulate = max(round(nominal_batch / batch_size), 1) if nominal_batch else 1
+    if nominal_batch:
+        weight_decay *= batch_size * accumulate / nominal_batch
+    optimizer = build_optimizer(model, optimizer_name, lr, weight_decay, momentum, muon, sgd)
     loader = DataLoader(
         dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
         num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=dev.type == "cuda",
+    )  # fmt: skip
+    schedule = Schedule(
+        lr=lr, epochs=epochs, batches_per_epoch=len(loader), warmup_epochs=warmup_epochs,
+        warmup_bias_lr=warmup_bias_lr, momentum=momentum, lr_final=lr_final, kind=lr_schedule,
     )  # fmt: skip
     use_amp = amp and dev.type in {"cuda", "mps"}
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and dev.type == "cuda")
@@ -109,7 +137,7 @@ def train(
     for epoch in range(done_epochs, epochs):
         alpha = progressive_alpha(epoch, epochs)
         began, epoch_losses = time.time(), []
-        for batch in loader:
+        for index, batch in enumerate(loader):
             if max_steps is not None and steps >= max_steps:
                 stopped = True
                 break
@@ -120,19 +148,25 @@ def train(
             total, parts = loss_fn(
                 preds, image_hw, batch.gt_labels, batch.gt_boxes, batch.mask_gt, alpha
             )
-            optimizer.zero_grad(set_to_none=True)
-            scaler.scale(total).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
-            scaler.step(optimizer)
-            scaler.update()
+            schedule.apply(optimizer, steps)  # this iteration's learning rate and momentum
+            scaler.scale(total / accumulate).backward()  # the mean over the accumulated batches
+            if (index + 1) % accumulate == 0 or index + 1 == len(loader):
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                result.updates += 1
             steps += 1
             numbers = {name: value.item() for name, value in parts.items()}
             result.losses.append(total.item())
             result.parts.append(numbers)
             result.alphas.append(alpha)
             epoch_losses.append(total.item())
-            log.write("step", epoch=epoch, step=steps, alpha=alpha, loss=total.item(), **numbers)
+            rate = next(g["lr"] for g in optimizer.param_groups if g["name"] == "weight")
+            log.write(
+                "step", epoch=epoch, step=steps, alpha=alpha, lr=rate, loss=total.item(), **numbers
+            )
         if stopped:
             break
 
