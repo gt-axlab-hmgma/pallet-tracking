@@ -44,3 +44,35 @@ def decode_boxes(
     top_left = anchor_points - left_top * anchor_strides
     bottom_right = anchor_points + right_bottom * anchor_strides
     return torch.cat((top_left, bottom_right), dim=-1)
+
+
+def postprocess(
+    boxes: torch.Tensor,
+    cls_logits: torch.Tensor,
+    image_hw: tuple[int, int],
+    max_det: int = 300,
+) -> torch.Tensor:
+    """Pick the best ``max_det`` detections: ``[B, A, 4]`` boxes and ``[B, A, nc]`` logits in,
+    ``[B, max_det, 6]`` out, each row ``x1 y1 x2 y2 score class``.
+
+    There is no NMS and no score threshold. Once trained with one-to-one assignment (the
+    assigner and loss, not written yet), the one-to-one head gives one confident cell per
+    object, so taking the highest scores is enough; an untrained model gives no such
+    guarantee. Callers filter by confidence afterwards. The output always has exactly
+    ``max_det`` rows (the contract fixes the shape), padded with all-zero rows when there
+    are fewer candidates.
+    """
+    num_classes = cls_logits.shape[-1]
+    scores = cls_logits.sigmoid().flatten(1)  # [B, A * nc]: one entry per (cell, class) pair
+    k = min(max_det, scores.shape[1])
+    top_scores, top_idx = torch.topk(scores, k, dim=1)  # sorted, highest first
+    cell = torch.div(top_idx, num_classes, rounding_mode="floor")
+    cls = top_idx - cell * num_classes  # the remainder, written without % for clean export
+
+    top_boxes = boxes.gather(1, cell.unsqueeze(-1).expand(-1, -1, 4))
+    height, width = image_hw
+    limit = boxes.new_tensor([width, height, width, height])
+    top_boxes = torch.minimum(top_boxes.clamp(min=0), limit)  # clamp to the image
+
+    out = torch.cat((top_boxes, top_scores.unsqueeze(-1), cls.to(boxes.dtype).unsqueeze(-1)), -1)
+    return torch.nn.functional.pad(out, (0, 0, 0, max_det - k))
