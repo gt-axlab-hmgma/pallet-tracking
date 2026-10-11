@@ -20,7 +20,8 @@ Proprietary, all rights reserved (see [LICENSE](LICENSE)). Do not install or imp
 | Look at stored events | `docker compose exec db psql -U palletvision -d palletvision` |
 | Send queued events to Postgres | [`uv run pv-sync`](#pv-sync-send-queued-events-to-postgres) |
 | Train, export, benchmark, run on video | [`pv-train`, `pv-export`, `pv-bench`, `pv-infer`](#model-commands) |
-| Run every check | `uv run pytest`, plus `npm test` in `apps/demo-ui` |
+| Run every check | `uv run pytest`, plus `npm test` in `apps/demo-ui`. The overfit gate test is slow and runs on request: `uv run pytest -m slow` |
+| Check the whole pipeline can learn | [`uv run pv-overfit`](#pv-overfit-the-overfit-gate) |
 
 ## Setup
 
@@ -274,6 +275,17 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
 | `train.output_dir` | `runs/stage1` | Where `last.pt` is written. |
+
+### `pv-overfit`: the overfit gate
+
+Before any real training, check that the model, assigner, loss and data reader agree. It trains a fresh model on a handful of images with no augmentation, then checks the model's own final detections against the labels of those same images.
+
+```bash
+uv run pv-overfit --device mps                              # 8 real LOCO images, 800 steps (about 4 minutes on the M5 Pro)
+uv run pv-overfit --source synthetic --images 2 --size 64 --steps 300 --device cpu   # about a minute, no download
+```
+
+It passes when all three hold: the loss falls by at least 90%, AP50 on the training images is at least 0.95, and no image gets more than 1.25 times its object count (plus one) of confident boxes, which would mean duplicates. It exits with status 1 and lists the reasons when it fails. It also writes `overfit_<i>.jpg` pictures to `--out` (default `runs/overfit`), with labels in green and detections in red, so you can look at them. A falling loss alone proves little: after 120 steps on the synthetic images the loss was already down 94% while AP50 was 0.04.
 
 ### `pv-export`: convert a checkpoint to ONNX
 
