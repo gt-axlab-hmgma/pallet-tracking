@@ -26,11 +26,11 @@ Scope: the full detector (architecture, decoding, loss, assignment, data pipelin
 | **[?]** | Not specified anywhere I can cite. A design choice you make and ablate |
 
 ### 0.4 Known unknowns (decide and log these)
-1. Exact YOLO26 layer list and repeat counts (this guide gives the YOLO11-family layout, tag [C], which matches the published sizes closely; verify with parameter/FLOP counts).
-2. How the direct box regression (no DFL) keeps distances non-negative (ReLU, softplus, exp). [?]
-3. Whether the one-to-one head's gradients flow into the shared features. [?]
-4. The exact form of ProgLoss and STAL (the analysis paper gives only loose formulas, other write-ups disagree). Both are optional here. [P, loosely]
-5. Loss gains once DFL is removed (the v8-era values below are a starting point). [C]
+1. Exact YOLO26 layer list and repeat counts. [resolved] The layout in this guide reproduces the published parameter totals exactly (n 2,572,280 and s 10,009,784 at 80 classes, both heads), which pins every width, repeat count, `expand` and `c3k` flag.
+2. How the direct box regression (no DFL) keeps distances non-negative. [decided] No activation on the raw distances: the head's box bias starts them at 2 strides and the loss keeps them positive. Softplus, `exp` and ReLU stay as ablations. [?]
+3. Whether the one-to-one head's gradients flow into the shared features. [decided] No: its input is detached in training. Ablate later. [?]
+4. The exact form of ProgLoss and STAL. [resolved by the YOLO26 report] ProgLoss is Eq. 2-3 (branch weight `α(t)` falling linearly per epoch from 0.8 to 0.1); STAL is Eq. 4-6 (sides below the smallest stride clamped to the next stride for candidate selection only). Both are part of the baseline (T2, T3). [P]
+5. Loss gains once DFL is removed. Start from the report's pretraining recipe (Table S2): box 7.5, cls 0.5, L1 6.0 (its `dfl` field now scales the L1 term); its COCO fine-tuning values differ by model size. [P]
 
 ### 0.5 Conventions
 - Tensors are NCHW. Boxes are `xyxy` in **input pixels** (the letterboxed 640×640 image) unless stated.
@@ -106,7 +106,7 @@ Record source URL, date and licence in `data/README.md`. Check licences for the 
 
 ### 3.2 First hour with LOCO (do this before any modelling)
 1. Load the annotation JSON and print: number of images, number of annotations, the list of `categories` (id → name), and annotations per category.
-2. Decide the class mapping for stage 1. The repo config currently maps `pallet`, `pallet_truck`, `stillage` all to `pallet`. A pallet truck is not a pallet; decide from the real categories and write the reasoning in the decision log.
+2. Stage-1 class mapping. [decided] `pallet` and `stillage` map to the single class `pallet`; `pallet_truck`, `forklift` and `small_load_carrier` are dropped (a pallet truck is a vehicle, not cargo, and a parked one must not raise a pallet event). Revisit stillages in stage 2 once HMGMA's real pallet types are known.
 3. Check whether LOCO ships train/val/test splits. If yes, use them unchanged. If no, create one deterministic split (seeded) and commit the list of image ids, so every experiment uses the same split.
 4. Compute box statistics (width, height, area relative to image, aspect ratio, boxes per image). This tells you how small the objects are and sets expectations: boxes below ~8 px at 640 are hard at stride 8.
 5. Draw 20 random images with their boxes and look at them. Verify image paths, box convention (`[x, y, w, h]` in COCO), and orientation (EXIF rotation can swap width/height).
@@ -155,20 +155,20 @@ Expected P3/P4/P5 head input channels: n → 64/128/256, s → 128/256/512 (matc
 2. `y = Conv(c_in, 2c, 1)(x)`, split along channels into two halves `[y0, y1]` of `c` channels.
 3. Apply `n` bottlenecks in sequence, each to the previous output, appending each result to the list: `[y0, y1, m1(y1), m2(m1(y1)), …]`.
 4. Concatenate all (`(2+n)·c` channels) and `Conv((2+n)·c, c_out, 1)`.
-Bottlenecks inside use kernels (3,3) and `expand=1.0`.
+In C2f proper the inner bottlenecks use kernels (3,3) and `expand=1.0`. **C3k2's plain-Bottleneck path is different: it keeps `Bottleneck`'s default `expand=0.5`** (hidden width `c/2`), which is what reproduces the published parameter counts.
 
 **C3 (CSP bottleneck with 3 convs)** [S]: `c_ = int(c_out · expand)`; branch A: `Conv(c_in, c_, 1)` → `n` bottlenecks (kernels (1,3), expand 1.0); branch B: `Conv(c_in, c_, 1)`; concatenate A and B, then `Conv(2c_, c_out, 1)`.
 
 **C3k** [C]: a C3 whose inner bottlenecks use kernels `(k, k)` with `k=3` and `n=2` repeats.
 
-**C3k2(c_in, c_out, n, c3k, expand, groups, shortcut)** [C]: the C2f block above, except the inner module list is `n` × `C3k(c, c, 2, shortcut, groups)` if `c3k=True`, else `n` × `Bottleneck(c, c, shortcut, groups)`. The `expand` argument in the layer table (0.25 in the early stages, 0.5 otherwise) is passed as `expand`.
+**C3k2(c_in, c_out, n, c3k, expand, groups, shortcut)** [C]: the C2f block above, except the inner module list is `n` × `C3k(c, c, 2, shortcut, groups)` if `c3k=True`, else `n` × `Bottleneck(c, c, shortcut, groups)`. The `expand` argument in the layer table (0.25 in the early stages, 0.5 otherwise) is passed as `expand`. With `attn=True` each of the `n` slots is instead `Bottleneck(c, c, shortcut, groups)` followed by `PSABlock(c, attn_ratio=0.5, num_heads=max(c // 64, 1))`; `attn` takes priority over `c3k` (the last neck block uses it).
 
 **Test:** shape preserved when `stride`-free; channel count of the concat equals `(2+n)·c`; compare parameter count against a hand calculation for one block; shortcut only active when channels match.
 **Pitfalls:** splitting uses `chunk(2, dim=1)`, not `split` by arbitrary sizes; the concat must include the **first** chunk (the skip path), or capacity silently drops.
 
 ### Step M4. SPPF and attention (C2PSA)
 
-**SPPF(c_in, c_out, k=5)** [S]: `c_ = c_in // 2`; `x = Conv(c_in, c_, 1)`; apply `MaxPool2d(k, stride=1, padding=k//2)` **three times in sequence**, keeping each output; concatenate `[x, p1, p2, p3]` (4·c_ channels); `Conv(4·c_, c_out, 1)`. Equivalent to parallel pools of size 5/9/13 at lower cost.
+**SPPF(c_in, c_out, k=5)** [S]: `c_ = c_in // 2`; `x = Conv(c_in, c_, 1)`; apply `MaxPool2d(k, stride=1, padding=k//2)` **three times in sequence**, keeping each output; concatenate `[x, p1, p2, p3]` (4·c_ channels); `Conv(4·c_, c_out, 1)`. Equivalent to parallel pools of size 5/9/13 at lower cost. **Optional residual** `shortcut`: with `shortcut=True` and `c_in == c_out` the block's input is added to its output; the backbone's layer 9 turns it on [?: not visible in the paper's figure, and it adds no parameters].
 
 **Attention(dim, num_heads, attn_ratio=0.5)** [C/S]:
 - `head_dim = dim // num_heads`; `key_dim = int(head_dim · attn_ratio)`; `scale = key_dim ** -0.5`.
@@ -203,7 +203,7 @@ For the n model at P5: `c_in = 256`, `c = 128`, `num_heads = 2`, `head_dim = 64`
 | 6 | C3k2 | 512, c3k=True, n=2→1 | 128 | 16 | **keep as B4** |
 | 7 | Conv | 1024, 3, 2 | 256 | 32 | |
 | 8 | C3k2 | 1024, c3k=True, n=2→1 | 256 | 32 | |
-| 9 | SPPF | 1024, k=5 | 256 | 32 | |
+| 9 | SPPF | 1024, k=5, shortcut=True | 256 | 32 | |
 | 10 | C2PSA | 1024, n=2→1 | 256 | 32 | **keep as B5** |
 
 Spatial sizes at 640 input: 320 → 160 → 80 → 40 → 20.
@@ -218,18 +218,20 @@ Spatial sizes at 640 input: 320 → 160 → 80 → 40 → 20.
 | --- | --- | --- | --- | --- |
 | 11 | Upsample ×2 (nearest) | 10 | 256 | 16 |
 | 12 | Concat | 11, 6 | 384 | 16 |
-| 13 | C3k2 (512, c3k=False) | 12 | 128 | 16 |
+| 13 | C3k2 (512, c3k=True) | 12 | 128 | 16 |
 | 14 | Upsample ×2 | 13 | 128 | 8 |
 | 15 | Concat | 14, 4 | 256 | 8 |
-| 16 | C3k2 (256, c3k=False) | 15 | **64 (N3)** | 8 |
+| 16 | C3k2 (256, c3k=True) | 15 | **64 (N3)** | 8 |
 | 17 | Conv (256, 3, 2) | 16 | 64 | 16 |
 | 18 | Concat | 17, 13 | 192 | 16 |
-| 19 | C3k2 (512, c3k=False) | 18 | **128 (N4)** | 16 |
+| 19 | C3k2 (512, c3k=True) | 18 | **128 (N4)** | 16 |
 | 20 | Conv (512, 3, 2) | 19 | 128 | 32 |
 | 21 | Concat | 20, 10 | 384 | 32 |
-| 22 | C3k2 (1024, c3k=True) | 21 | **256 (N5)** | 32 |
+| 22 | C3k2 (1024, c3k=True, e=0.5, attn=True), 1 repeat | 21 | **256 (N5)** | 32 |
 
 Concats are along channels. The head consumes `(N3, N4, N5)` = layers `(16, 19, 22)`.
+
+Layers 13, 16 and 19 have 2 nominal repeats (1 after depth scaling for n); layer 22 has exactly 1. Layer 22's attention is shown in the paper's Fig. S1 (`attn=True`). The `c3k=True` flags on 13, 16 and 19 are confirmed by the exact parameter-count match, since `c3k` changes the count.
 
 **Test:** shapes `[B,64,80,80]`, `[B,128,40,40]`, `[B,256,20,20]`; every concat has matching spatial sizes.
 **Pitfalls:** wrong skip index (concat with the pre-SPPF layer instead of layer 10); nearest vs bilinear upsampling (nearest exports cleanly).
@@ -242,17 +244,17 @@ Concats are along channels. The head consumes `(N3, N4, N5)` = layers `(16, 19, 
 - **Class branch:** `[DWConv(ch_i, ch_i, 3) → Conv(ch_i, c_cls, 1)]` → `[DWConv(c_cls, c_cls, 3) → Conv(c_cls, c_cls, 1)]` → `Conv2d(c_cls, nc, 1)`.
 - Output per level: `box_raw [B, 4, H_i, W_i]`, `cls_logits [B, nc, H_i, W_i]`.
 
-**Two copies:** the **one-to-many branch** and the **one-to-one branch** each have their own box and class convs per level (same architecture, separate weights). The one-to-one branch is trained on top of the shared features; whether to `detach()` its input is design choice [?] (see section 0.4). Start with detaching its input features so its gradients cannot disturb the shared backbone/neck, and ablate later.
+**Two copies:** the **one-to-many branch** and the **one-to-one branch** each have their own box and class convs per level (same architecture, separate weights). The one-to-one branch is trained on top of the shared features; whether to `detach()` its input is design choice [?] (see section 0.4). **Decision:** the one-to-one branch's input features are detached in training, so its gradients cannot disturb the shared backbone/neck; ablate later.
 Inference uses the one-to-one branch only; the one-to-many branch can be dropped at export.
 
 **Flattening:** concatenate the three levels along the cell axis: `box_raw [B, A, 4]`, `cls_logits [B, A, nc]` with `A = 8400` ordered P3 row-major, then P4, then P5. Keep the same order in the anchor-point table (step M8).
 
 **Initialisation** [S]:
-- Class final-conv bias set to the prior `b = -log((1 - π)/π)` with `π = 0.01` (≈ −4.6), so initial scores are small and the huge number of background cells does not dominate early loss.
-- Box final-conv bias: choose so that the initial predicted distance is around one to two strides (for example bias ≈ 1.0 in the chosen activation's pre-image).
-- Positivity of distances [?]: apply an activation to `box_raw` before use; recommended start: `softplus` (smooth, never exactly zero gradient), with `exp` and `ReLU` as ablation alternatives.
+- Class final-conv bias, per level: `b = log(prior_objects / nc / cells)` with `prior_objects = 5` and `cells = (input_size / stride)²` (6400, 1600 and 400 at 640), so each level starts expecting about 5 detections and the thousands of background cells do not dominate the early loss. Initial scores for one class are about 0.0008 (P3), 0.003 (P4) and 0.012 (P5). `prior_objects` is tunable (LOCO averages about 24 pallets per image). [S/C]
+- Box final-conv bias: 2.0 for all four outputs, so initial distances are two strides (a 32 px square at P3 up to 128 px at P5 for a 640 input).
+- Positivity of distances [?]: **no activation** is applied to `box_raw`; the 2.0 bias starts the distances positive and the loss keeps them so. Softplus, `exp` and ReLU are ablation alternatives.
 
-**Parameter sanity (n, nc=1, reg_max=1):** per branch copy the box branch is ≈ 72k params and the class branch ≈ 50k; with two copies the head is ≈ 0.25M. Compare total model params with the published 2.4M (counting both heads, and counting one-to-one only; one of them should land within ±10%).
+**Parameter sanity:** per branch copy at n with one class, the box branch has 71,820 parameters and the class branch 48,963. With 80 classes and both heads the full model has **2,572,280** (n) and **10,009,784** (s) parameters, which `test_param_counts.py` pins; the deployed one-to-one-only model has 2,417,452 (n, 80 classes) and 2,383,407 (n, 1 class).
 
 **Test:** output shapes; both branches produce `[B,8400,·]`; one-to-one input is detached when configured (check `requires_grad` of the head's input graph or that backbone grads are zero for a loss that uses only the one-to-one branch).
 **Pitfalls:** an off-by-one in `c_box`/`c_cls`; forgetting the DW conv `groups`; mixing branch weights; flatten order mismatching anchors.
@@ -261,7 +263,7 @@ Inference uses the one-to-one branch only; the one-to-many branch can be dropped
 
 **Spec** [S]:
 - For each level with stride `s` and grid `H×W`: anchor points `(ax, ay) = ((j + 0.5)·s, (i + 0.5)·s)` for row `i`, column `j`. Concatenate levels in the order used in M7 → `anchor_points [A, 2]` and `anchor_strides [A, 1]`.
-- With activated distances `d = activation(box_raw) [B,A,4]` as `(l, t, r, b)` in stride units:
+- With the raw distances `d = box_raw [B,A,4]` as `(l, t, r, b)` in stride units (no activation, see M7):
   `x1 = ax − l·s`, `y1 = ay − t·s`, `x2 = ax + r·s`, `y2 = ay + b·s`.
 - Clamp decoded boxes to the image (`[0, S]`) only at inference/export, not in the loss.
 
@@ -279,15 +281,15 @@ Inference uses the one-to-one branch only; the one-to-many branch can be dropped
 
 No confidence threshold inside the model (the repo's `decode` applies `conf` outside, and mAP evaluation wants a very low threshold).
 
-**Test:** shape `[B,300,6]`; scores sorted descending; contract compliance test against `contracts/model_io.yaml`; `TorchBackend` and `OnnxRuntimeBackend` give identical `Detections` after decode.
+**Test:** shape `[B,300,6]`; scores sorted descending; contract compliance test against `contracts/model_io.yaml`; `TorchBackend` and `OnnxRuntimeBackend` give identical `Detections` after decode. **Caveat:** an untrained network scores almost every cell the same, so ties break differently in the two runtimes; compare the per-cell outputs and the top-300 selection separately (as `tests/test_yolo26_export.py` does) and check full-output identity on a trained model.
 **Pitfalls:** sorting after thresholding changes the shape (breaks export); topk over classes separately (loses multi-class completeness).
 
 ### Step M10. Parameter/FLOP check and ONNX export
 
 **Spec:**
-- Count params with `sum(p.numel())`; FLOPs with the repo helper `palletvision_infer.bench.count_params_flops` (counts 2 FLOPs per multiply-add) at 640. Targets for n: ≈2.4M params, ≈5.5 GFLOPs, within ±10–15%. Investigate larger differences: usually a wrong layer table, wrong `expand` or a head width bug.
+- Count params with `sum(p.numel())`; FLOPs with the repo helper `palletvision_infer.bench.count_params_flops` (counts 2 FLOPs per multiply-add) at 640. Targets for n: ≈2.4M params and ≈5.5 GFLOPs, within ±10–15%; measured: 2,383,407 params and 5.31 GFLOPs (one class), 2,417,452 and 5.48 (80 classes). Investigate larger differences: usually a wrong layer table, wrong `expand` or a head width bug.
 - Export in `eval()` mode with the one-to-one branch only, opset 13, input name `images`, output name `detections`, fixed input size 640 (static shapes), via the existing `export_onnx`.
-- Compare with ONNX Runtime on random inputs and real images: max abs difference ≤ 1e-4 on scores and ≤ 1e-3 px on boxes.
+- Compare with ONNX Runtime on random inputs and real images: max abs difference ≤ 1e-4 on scores and ≤ 1e-3 px on boxes. **For a randomly initialised network this is unreachable:** float32 rounding through about 100 layers gives differences near 1e-3 of the value range (Torch float32 differs from Torch float64 by about the same), so the repo test uses a relative tolerance of 2e-2 on per-cell outputs. Apply the tight numbers to a trained model.
 - Inspect the op list (`onnx` python API). Things to watch for TensorRT 8.2 (Jetson Nano): `TopK` with constant K (fine), `GatherElements`/`Gather`, `Softmax` over the last axis, `Resize` (nearest), `Reshape`/`Transpose` in attention, no `Einsum`, no dynamic control flow, no ops needing opset > 13. Build an engine on a Nano as soon as hardware is available. [?]
 
 **Pitfalls:** tracing leaves Python `int()` constants baked in (fine for static sizes); `torch.export`-style exporters may emit opset > 13, so use the legacy exporter flag the repo already uses; `train()` mode BN leaks into exported graphs.
@@ -313,25 +315,25 @@ No confidence threshold inside the model (the repo's `decode` applies `conf` out
 ### Step T2. Task-aligned assigner
 
 **Inputs per batch:** `pred_scores [B,A,nc]` (sigmoid), `pred_boxes [B,A,4]` (decoded, detached), `anchor_points [A,2]`, `gt_labels [B,M,1]`, `gt_boxes [B,M,4]`, `mask_gt [B,M,1]` (1 for real GTs, 0 for padding). `M` = max GTs per image in the batch.
-**Hyperparameters:** `topk` (10 for the one-to-many branch, **1 for the one-to-one branch**), `alpha`, `beta` [P/C]: TOOD uses α=1, β=6; YOLO-family code commonly uses α=0.5, β=6.0. Start with 0.5/6.0 and tune; use the **same α, β in both branches** (YOLOv10's "consistent matching") [P].
+**Hyperparameters:** `topk` (one-to-many branch: **10**; one-to-one branch: **7 candidates, then a second top-1 pick (`topk2 = 1`)**, so exactly one positive per object [P: YOLO26 report, Fig. 2]), `alpha`, `beta` [P/C]: TOOD uses α=1, β=6; YOLO-family code commonly uses α=0.5, β=6.0. Start with 0.5/6.0 and tune; use the **same α, β in both branches** (YOLOv10's "consistent matching") [P].
 
 **Algorithm:**
-1. **Candidates:** `mask_in_gt [B,M,A]` = anchor point strictly inside GT box (min of distances to the four sides > eps).
-2. **Alignment metric** `align [B,M,A] = s^α · iou^β` where `s = pred_scores[b, a, label_of_gt_m]` and `iou = IoU(gt_box_m, pred_box_a)` (clamped ≥ 0). Zero it wherever `mask_in_gt · mask_gt == 0`.
+1. **Candidates (with STAL):** `mask_in_gt [B,M,A]` = anchor point strictly inside the GT box **used for candidate selection only**: the real box with each side below `s_min` (the smallest stride, 8) replaced by `s_ref` (the next stride, 16), keeping its centre, i.e. `d̃ = s_ref if d < s_min else d` for `d ∈ {w, h}` [P: STAL, Eq. 4-6]. Every later step (alignment score, conflict resolution, targets, box loss) uses the original box.
+2. **Alignment metric** `align [B,M,A] = s^α · iou^β` where `s = pred_scores[b, a, label_of_gt_m]` and `iou = CIoU(gt_box_m, pred_box_a)` clamped at 0 (the YOLO-family implementation; plain IoU is the simpler alternative and is selectable with `iou_kind="iou"`). Zero it wherever `mask_in_gt · mask_gt == 0`.
 3. **Top-k selection:** for each `(b, m)`, pick the `topk` anchors with the largest `align` among the candidates → `mask_topk [B,M,A]`. An anchor with metric 0 must not be selected.
 4. **Positives:** `mask_pos = mask_topk · mask_in_gt · mask_gt`.
-5. **Conflict resolution:** `count [B,A] = Σ_m mask_pos`. Where an anchor has been chosen by more than one GT, keep only the GT with the largest IoU with that anchor's prediction.
+5. **Conflict resolution, then the second filter:** `count [B,A] = Σ_m mask_pos`. Where an anchor has been chosen by more than one GT, keep only the GT with the largest IoU with that anchor's prediction. **One-to-one branch only:** after the conflicts are resolved, each object keeps only its single best remaining cell by alignment (`topk2 = 1`), so an object that lost its favourite cell falls back to its next best instead of ending with none.
 6. **Targets:** for every positive anchor gather the assigned GT index → `target_boxes [B,A,4]`, `target_labels [B,A]`; build `target_scores [B,A,nc]` as one-hot of the label (zero for non-positives). `fg_mask [B,A]` = anchor is positive.
 7. **Alignment normalisation** [P, TOOD]: for each GT `m`, `max_align_m = max_a align[m,a]·mask_pos`, `max_iou_m = max_a iou[m,a]·mask_pos`. Then for each anchor, `norm = max over m of ( align[m,a] · max_iou_m / (max_align_m + eps) )`, and `target_scores *= norm[..., None]`. This turns the classification target of a positive from "1" into "how good this cell is" (up to the object's best IoU).
 
 **Outputs:** `target_boxes`, `target_scores`, `fg_mask` (and the target GT index for debugging).
 
 **Test (hand-built cases):**
-- One GT, one obvious cell inside it → that cell is the single positive (topk=1) and gets `target_scores ≈ iou`.
+- One GT, one obvious cell inside it → that cell is the single positive (one-to-one setting) and gets `target_scores ≈ iou`.
 - Two GTs overlapping, an anchor inside both → the anchor goes to the one with higher IoU.
-- A GT so small that no anchor centre is inside → zero positives (this documents the small-object problem, see optional STAL, step O1).
+- A GT so small that no anchor centre is inside its real box → with STAL it still gets candidates (its sides are clamped to 16 px for the inside-box test only) and the original box is still used for scoring; the same GT without STAL gets none.
 - Padding GTs (`mask_gt = 0`) never produce positives.
-- `topk=10` gives at most 10 positives per GT; `topk=1` exactly 1.
+- `topk=10` gives at most 10 positives per GT; the one-to-one setting (`topk=7, topk2=1`) gives exactly 1.
 - Shapes with `B>1`, `M` differing between images.
 **Pitfalls:** feeding gradients into the assigner (wrap in `no_grad`); using logits instead of sigmoid scores; score of the wrong class; scale mismatch between anchor points and boxes; `M=0` batches (images without GTs) must work and produce no positives.
 **Performance:** the `[B,M,A]` tensors are large (e.g. `16·50·8400`); fine on GPU. On MPS some ops (scatter/topk) may be slow or limited; fall back to CPU for the assigner if profiling says so. [verify]
@@ -342,8 +344,9 @@ No confidence threshold inside the model (the repo's `decode` applies `conf` out
 - `n_targets = max(Σ target_scores, 1)`.
 - **Classification:** `L_cls = Σ BCEWithLogits(cls_logits, target_scores) / n_targets` (sum over all cells and classes). Because positives' targets are the soft alignment-normalised scores, confidence tracks box quality. (A varifocal or quality-focal variant is an optional alternative.)
 - **Box:** for positive cells only, `L_box = Σ_i w_i · (1 − CIoU(pred_box_i, target_box_i)) / n_targets` with `w_i = Σ_c target_scores_ic`.
-- **Total per branch:** `L = λ_box·L_box + λ_cls·L_cls`. Start with `λ_box = 7.5`, `λ_cls = 0.5` [C: v8-era values; no DFL term now]. If box loss dominates or cls is ignored, retune.
-- **Dual-branch total:** `L = L_one2many + L_one2one` with each branch using its own assigner (`topk` 10 and 1). Start with weights 1 and 1; the progressive schedule is optional (O2).
+- **L1:** with DFL gone, add a direct L1 term on the same positive cells: `L_l1 = Σ_i w_i · mean|pred_box_i − target_box_i| / n_targets`, both boxes divided by the image size so it is scale free [P: the YOLO26 report replaces DFL with direct regression plus an L1 loss; the normalisation is a repo decision [?]].
+- **Total per branch:** `L = λ_box·L_box + λ_cls·L_cls + λ_l1·L_l1`. Start with `λ_box = 7.5`, `λ_cls = 0.5`, `λ_l1 = 6.0` [P: Table S2 of the YOLO26 report, pretraining recipe; its COCO fine-tuning values differ by model size]. If one term dominates, retune.
+- **Dual-branch total with Progressive Loss:** `L = α(t)·L_one2many + (1 − α(t))·L_one2one`, each branch with its own assigner, where `α(t)` falls linearly per epoch from `α_init = 0.8` to `α_final = 0.1`: `α(t) = max(1 − t / max(E − 1, 1), 0) · (α_init − α_final) + α_final` [P: Eq. 2-3 and Fig. 2]. A constant 1:1 weighting is the ablation baseline.
 - Log each component separately (`box_o2m, cls_o2m, box_o2o, cls_o2o`) every N steps.
 
 **Test:** loss is finite and positive on random data; zero positives → box loss exactly 0 and cls loss positive; loss decreases when predictions move toward the targets; reduces to a known value on a hand-built example.
@@ -440,7 +443,7 @@ Save `last.pt` every epoch and `best.pt` by validation mAP50-95: model weights, 
 | E0 | 8 images | overfit gate |
 | E1 | LOCO train → LOCO val | main stage-1 model |
 | E2 | LOCO + SORDI subset (same settings) | does synthetic data help real mAP? |
-| E3 | ablations on the better of E1/E2 | one-to-one only vs dual head; with/without mosaic; softplus vs exp; detach vs no detach; α,β; loss gains |
+| E3 | ablations on the better of E1/E2 | one-to-one only vs dual head; with/without mosaic; no activation vs softplus vs exp; detach vs no detach; α,β; loss gains |
 Keep seeds fixed and record config + git commit with every run. Compare on the same validation split.
 Epochs: start with 100 for E1 to see the curve (the design estimate for the laptop is about 2–3 h for 5.6k images × 100 epochs; replace with a measured one-epoch time). Extend if validation mAP is still rising.
 
@@ -451,15 +454,13 @@ From `design.md`: load the stage-1 checkpoint, keep backbone, neck and box branc
 
 ## 9. Optional advanced parts (specified, implement after the baseline works)
 
-### O1. STAL (small-target-aware assignment) [P loosely, ?]
-**Problem:** at stride 8 a GT smaller than ~8 px may contain **no** anchor centre, so it gets zero positives and is never learned.
-**Remedies to try (ablate; the paper's exact mechanism is not pinned down):**
-1. Enforce a minimum effective GT size in the *candidate* test: expand tiny GTs to at least `~2·stride` for the inside-box check only.
-2. The paper's scale-adaptive threshold idea: `τ = τ_base · (1 − α·exp(−Area_obj / Area_img))`, making assignment more permissive for small objects. Apply it as a relaxation of the candidate/IoU criterion.
-**Test:** the small-GT assigner case from T2 now yields ≥ 1 positive; large GTs unchanged.
+### O1. STAL (small-target-aware assignment): now part of the baseline (see T2, step 1)
+**Problem:** at stride 8 a GT smaller than about 8 px may contain **no** anchor centre, so it gets zero positives and is never learned.
+**Mechanism** [P: YOLO26 report, Sec. 3.3.3, Eq. 4-6 and Sec. 4.1]: for the candidate test only, each side of a GT below `s_min` (8 px) is clamped to `s_ref` (16 px); the original box is kept for scoring, targets and box regression. On COCO (Table 6, YOLO11s) `s_ref = 16` gives +0.2 AP overall and small-object AP 29.0 → 29.6, while `s_ref = 8` or `32` do not help.
+**Test:** see T2 (the small-GT case yields at least one candidate; large GTs are unchanged). **Ablation:** compare with and without STAL on LOCO's small boxes (about 1.6% of pallet boxes have a longest side under 8 px at 640).
 
-### O2. ProgLoss (progressive loss balancing) [P loosely, ?]
-Two descriptions exist: shifting weight from classification to box loss over training (`L = λ_t·L_cls + (1−λ_t)·L_box`), and balancing the one-to-many and one-to-one branches over training. Implement a schedule on the **branch weights** first: start with one-to-many weighted high and one-to-one low, ramp to the reverse by the end of training (linear in epochs). Make the schedule configurable and compare with the constant 1:1 baseline.
+### O2. ProgLoss (progressive loss balancing): now part of the baseline (see T3)
+The branch-weight schedule is specified in T3 [P: Eq. 2-3]. The other description sometimes seen (moving weight from classification to box loss) is not what the YOLO26 report describes.
 
 ### O3. MuSGD [P loosely]
 SGD blended with Muon-style orthogonalised updates. Spec for the Muon part (public, MIT-licensed reference by K. Jordan): for each **matrix-shaped** weight (conv weights reshaped to `[c_out, c_in·k·k]`), take the momentum buffer `G`, run 5 Newton–Schulz iterations to approximate its orthogonalisation (`X ← aX + b(XXᵀ)X + c(XXᵀ)²X`, normalised start `X = G/‖G‖`, coefficients `(a,b,c) = (3.4445, −4.7750, 2.0315)`), scale the update by `max(1, rows/cols)^0.5`, and use plain SGD for biases/BN/1-D params. The paper's blend: `θ ← θ − η·(α·v + (1−α)·NS(g))`. Treat as an experiment: adopt only if a controlled comparison beats plain SGD.
@@ -581,7 +582,7 @@ Add only if ID switches after occlusion are a measured problem.
 | Boxes in the right place but shifted | missing `+0.5` anchor offset; letterbox pad mismatch; box conventions (xyxy vs xywh) mixed |
 | Boxes systematically too small/large | stride multiply forgotten; distances not in stride units; activation saturating |
 | Overfit works, real training stalls | LR/warmup, augmentation too strong (try off), label mapping errors, too many tiny boxes |
-| Duplicate boxes at inference | one-to-one branch not trained with `topk=1`, or you are decoding the one-to-many branch |
+| Duplicate boxes at inference | one-to-one branch not trained with the one-to-one assignment (`topk=7`, then `topk2=1`), or you are decoding the one-to-many branch |
 | mAP much lower than visual quality | evaluating with a high conf threshold; wrong un-letterbox; BN in train mode; wrong category ids |
 | Train mAP fine, val poor | leakage-free split? overfitting; weak augmentation; wrong preprocessing at eval |
 | Training very slow on MPS | assigner/top-k ops falling back to CPU; use CPU assigner or smaller `M`; fewer workers contention |
@@ -606,6 +607,7 @@ Log at least: class mapping, α/β, loss gains, activation for distances, detach
 ---
 
 ## 12. References (verify identifiers when you open them)
+- YOLO26 report (primary source for the architecture, ProgLoss, STAL and the L1 loss): Jocher et al., "Ultralytics YOLO26: Unified Real-Time End-to-End Vision Models", arXiv 2606.03748 (`docs/YOLO_26.pdf`).
 - YOLO26 analysis: arXiv 2601.12882 (NMS-free end-to-end, DFL removal, ProgLoss, STAL, MuSGD).
 - YOLOv10 (consistent dual assignments, NMS-free training): arXiv 2405.14458.
 - TOOD, task-aligned one-stage detection: arXiv 2108.07755.
@@ -626,4 +628,4 @@ Log at least: class mapping, α/β, loss gains, activation for distances, detach
 4. D1 reader → D2 letterbox + parity → D3 augmentation → D4 collate → D5 mixed sampling.
 5. R1–R3 optimiser/schedule/EMA → R4 devices → R5 checkpoints → R6 evaluation → E1 LOCO run → E2 +SORDI → E3 ablations.
 6. K1–K3 tracker core → K4–K5 ByteTrack + params → K6–K8 interface, voting, pallet behaviour → K11 tests → K10 zone integration + policy → 11.1 `pv-run`.
-7. Optional: O1 STAL, O2 ProgLoss, O3 MuSGD, K9 OC-SORT; stage 2 fine-tune when footage exists.
+7. Optional: O3 MuSGD, K9 OC-SORT; stage 2 fine-tune when footage exists. (STAL and ProgLoss are part of T2 and T3.)
