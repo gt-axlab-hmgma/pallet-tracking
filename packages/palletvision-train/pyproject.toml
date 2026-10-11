@@ -14,12 +14,14 @@ dependencies = [
   "onnx>=1.16",
   "numpy>=1.26",
   "opencv-python>=4.10",
+  "pycocotools>=2.0.8",
 ]
 
 [project.scripts]
 pv-train = "palletvision_train.cli:main"
 pv-export = "palletvision_train.export:main"
 pv-overfit = "palletvision_train.overfit_cli:main"
+pv-eval = "palletvision_train.eval_cli:main"
 
 [build-system]
 requires = ["hatchling"]

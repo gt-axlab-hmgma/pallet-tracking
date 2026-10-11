@@ -48,6 +48,7 @@ def train(
     loss_fn: DetectionLoss | None = None,
     resume: Path | str | None = None,
     metric_fn: Callable[[YOLO26], float] | None = None,
+    metric_every: int = 1,
     config: dict[str, Any] | None = None,
 ) -> TrainResult:
     """Train ``model`` on letterboxed ``(image, labels)`` samples.
@@ -59,8 +60,9 @@ def train(
 
     Files written to ``output_dir``:
     - ``last.pt``: a checkpoint after every epoch (atomic, so a crash never corrupts it),
-    - ``best.pt``: a checkpoint whenever ``metric_fn(model)`` (higher is better, run once per
-      epoch) beats every earlier epoch; only when a metric is given,
+    - ``best.pt``: a checkpoint whenever ``metric_fn(model)`` (higher is better) beats every
+      earlier score; only when a metric is given. It runs every ``metric_every`` epochs and always
+      after the last one,
     - ``metrics.jsonl``: one line per step and one per epoch, written as the run goes.
 
     ``resume`` is a checkpoint to continue from. Weights, optimiser and every random number
@@ -136,7 +138,7 @@ def train(
 
         done_epochs = epoch + 1
         metric = None
-        if metric_fn is not None:
+        if metric_fn is not None and (done_epochs % metric_every == 0 or done_epochs == epochs):
             model.eval()
             with torch.no_grad():
                 metric = metric_fn(model)

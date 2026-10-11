@@ -6,3 +6,4 @@ amp: false  # fp16 autocast on cuda and mps only; keep off until it is validated
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1
 resume: null  # null starts fresh; a checkpoint path resumes it; "auto" resumes <output_dir>/last.pt if present
+val_every: 0  # score the validation split every N epochs (and after the last); 0 never. Needs data=loco
