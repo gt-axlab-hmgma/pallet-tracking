@@ -45,16 +45,31 @@ def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
     return dataset
 
 
+def resume_path(cfg: DictConfig) -> Path | None:
+    """``train.resume``: null starts fresh, a path resumes from it, ``auto`` resumes from
+    ``<output_dir>/last.pt`` when it exists and starts fresh when it does not."""
+    setting = cfg.train.get("resume")
+    if setting is None:
+        return None
+    if setting == "auto":
+        found = Path(cfg.train.output_dir) / "last.pt"
+        return found if found.exists() else None
+    return Path(setting)
+
+
 def train_from_config(cfg: DictConfig) -> TrainResult:
     torch.manual_seed(cfg.seed)
     classes = yaml.safe_load((REPO / "contracts" / "classes.yaml").read_text())["stage1"]
     model = build_model(cfg, len(classes))
     dataset = build_dataset(cfg, classes)
+    config = OmegaConf.to_container(cfg, resolve=True)
+    assert isinstance(config, dict)
     return train(
         model, dataset, device=cfg.device, epochs=cfg.train.epochs,
         batch_size=cfg.train.batch_size, lr=cfg.train.lr, weight_decay=cfg.train.weight_decay,
         amp=cfg.train.amp, max_steps=cfg.train.max_steps, output_dir=cfg.train.output_dir,
-        num_workers=cfg.data.get("num_workers", 0),
+        num_workers=cfg.data.get("num_workers", 0), resume=resume_path(cfg),
+        config={str(k): v for k, v in config.items()},
     )  # fmt: skip
 
 
