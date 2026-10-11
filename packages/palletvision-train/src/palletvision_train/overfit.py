@@ -47,6 +47,8 @@ def run_gate(
     steps: int,
     device: str = "auto",
     lr: float = 1e-3,
+    optimizer_name: str = "adamw",
+    momentum: float = 0.9,
     out_dir: Path | str = "runs/overfit",
     conf: float = 0.3,
     min_loss_drop: float = 0.9,
@@ -66,6 +68,7 @@ def run_gate(
     n = len(dataset)  # type: ignore[arg-type]
     run = train(
         model, dataset, device=device, epochs=steps, batch_size=n, lr=lr, weight_decay=0.0,
+        optimizer_name=optimizer_name, momentum=momentum,  # default: how the gate was validated
         amp=False, output_dir=out,
     )  # fmt: skip
 
