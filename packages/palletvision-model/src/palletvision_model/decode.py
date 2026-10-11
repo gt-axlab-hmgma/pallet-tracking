@@ -55,10 +55,12 @@ def postprocess(
     """Pick the best ``max_det`` detections: ``[B, A, 4]`` boxes and ``[B, A, nc]`` logits in,
     ``[B, max_det, 6]`` out, each row ``x1 y1 x2 y2 score class``.
 
-    There is no NMS and no score threshold. The one-to-one head already gives one confident
-    cell per object, so taking the highest scores is enough; callers filter by confidence
-    afterwards. The output always has exactly ``max_det`` rows (the contract fixes the shape),
-    padded with all-zero rows when there are fewer candidates.
+    There is no NMS and no score threshold. Once trained with one-to-one assignment (the
+    assigner and loss, not written yet), the one-to-one head gives one confident cell per
+    object, so taking the highest scores is enough; an untrained model gives no such
+    guarantee. Callers filter by confidence afterwards. The output always has exactly
+    ``max_det`` rows (the contract fixes the shape), padded with all-zero rows when there
+    are fewer candidates.
     """
     num_classes = cls_logits.shape[-1]
     scores = cls_logits.sigmoid().flatten(1)  # [B, A * nc]: one entry per (cell, class) pair
