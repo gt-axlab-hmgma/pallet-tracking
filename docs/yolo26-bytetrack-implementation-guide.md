@@ -401,13 +401,13 @@ Pad labels to the batch max `M`; produce `gt_labels [B,M,1]`, `gt_boxes [B,M,4]`
 
 ### Step R1. Optimiser and parameter groups [C/D]
 - Three groups: (1) conv/linear weights with weight decay, (2) BatchNorm weights **no** decay, (3) all biases **no** decay.
-- **SGD:** `lr0 = 0.01`, momentum 0.937, nesterov, weight decay `5e-4 · batch/64` (nominal batch 64). Or **AdamW** `lr0 ≈ 1e-3`, `betas = (0.937, 0.999)`, decay `~0.01·...` (tune). SGD generalises better on long runs; AdamW is more forgiving for short runs and for the overfit test.
+- **MuSGD (YOLO26's optimiser) [P: report Sec. 3.3.1, Tables S2 and S4]:** `lr0 = 0.01`, `lrf = 0.01`, momentum 0.937 (the report prints 0.94 and says its values are rounded to two decimals), weight decay 5e-4 (scaled by the effective batch over the nominal batch of 64), warmup 1 epoch, all as in the report's pretraining recipe (Table S2). It applies a weighted mix of a Muon update and an SGD update to the multi-dimensional weights (convolution kernels, linear weights) and pure SGD to the 1-D parameters (biases, norm scales), which is exactly the group split above. The report records the mix as **Muon 0.45, SGD 0.55** for YOLO26n (Table S4; 0.50/0.50 for s). Its ablation against plain SGD from scratch on COCO: +0.4 mAP with a shorter schedule (Table 4). The Muon update itself is not spelled out in the report; the repo follows Jordan's public Muon reference, as Ultralytics does (see O3). **Plain SGD** (`lr0 = 0.01`, Nesterov) and **AdamW** (`lr0 ≈ 1e-3`, `betas = (0.937, 0.999)`; easier for the overfit test) stay available for comparisons.
 - Gradient clipping at max-norm 10.0.
 - Nominal batch size 64: accumulate `round(64 / batch)` steps so effective batch is stable across hardware.
 
 ### Step R2. Learning-rate schedule
-- **Warmup** for the first 3 epochs (≥ 100 iterations): LR rises linearly from 0 (biases from 0.1 down to `lr0`) and momentum from 0.8 to 0.937.
-- **Decay:** cosine (or linear) from `lr0` to `lr0 · lrf` with `lrf = 0.01`.
+- **Warmup** for the first epoch (the report's Table S2 uses 1 for n; the guide's earlier 3 came from YOLOv5) but never fewer than 100 iterations: LR rises linearly from 0 (biases from 0.1 down to `lr0`; the 0.1 is our choice, not given in the report) and momentum from 0.8 to its full value.
+- **Decay:** linear (cosine is an option; the report does not say) from `lr0` to `lr0 · lrf` with `lrf = 0.01`.
 **Test:** schedule values at epoch 0, mid warmup, mid training, last epoch.
 
 ### Step R3. EMA (exponential moving average of weights)
@@ -462,10 +462,12 @@ From `design.md`: load the stage-1 checkpoint, keep backbone, neck and box branc
 ### O2. ProgLoss (progressive loss balancing): now part of the baseline (see T3)
 The branch-weight schedule is specified in T3 [P: Eq. 2-3]. The other description sometimes seen (moving weight from classification to box loss) is not what the YOLO26 report describes.
 
-### O3. MuSGD [P loosely]
-SGD blended with Muon-style orthogonalised updates. Spec for the Muon part (public, MIT-licensed reference by K. Jordan): for each **matrix-shaped** weight (conv weights reshaped to `[c_out, c_in·k·k]`), take the momentum buffer `G`, run 5 Newton–Schulz iterations to approximate its orthogonalisation (`X ← aX + b(XXᵀ)X + c(XXᵀ)²X`, normalised start `X = G/‖G‖`, coefficients `(a,b,c) = (3.4445, −4.7750, 2.0315)`), scale the update by `max(1, rows/cols)^0.5`, and use plain SGD for biases/BN/1-D params. The paper's blend: `θ ← θ − η·(α·v + (1−α)·NS(g))`. Treat as an experiment: adopt only if a controlled comparison beats plain SGD.
-
----
+### O3. MuSGD: now part of the baseline (see R1)
+The Muon update, as implemented in `palletvision_train/optim.py` after Jordan's public reference and Ultralytics' MuSGD (the report gives only the idea and the mix weights):
+- For each multi-dimensional weight, keep a running average of the gradient `a ← β·a + (1−β)·g` and form the Nesterov blend `u = (1−β)·g + β·a`. Flatten `u` to `[c_out, c_in·k·k]` and orthogonalise it with 5 Newton-Schulz iterations: normalise by the Frobenius norm, transpose if tall, then `X ← aX + (bA + cA²)X` with `A = XXᵀ` and `(a, b, c) = (3.4445, −4.7750, 2.0315)`. The result has singular values roughly between 0.5 and 1.5, not exactly 1. Scale by `sqrt(max(1, rows/cols))` of the last two dimensions of the original weight (1 for the square kernels here).
+- Apply `−lr · w_muon · scale · NS(u)` (no weight decay), then the ordinary Nesterov-SGD step with weight decay at `lr · w_sgd` on the weights as they stand after the Muon part. Biases and norm scales get plain SGD at the full `lr`.
+- `w_muon = 0.45`, `w_sgd = 0.55` for n [P: Table S4]. With `w_muon = 0` and `w_sgd = 1` it is exactly PyTorch SGD, which is how the repo tests it.
+**Test:** the Newton-Schulz output has singular values in the right band and is scale-free; one step equals the hand-computed Muon part plus SGD part; with no Muon weight it equals `torch.optim.SGD`; biases and norm scales match plain SGD.
 
 ## 10. ByteTrack
 
@@ -628,4 +630,4 @@ Log at least: class mapping, α/β, loss gains, activation for distances, detach
 4. D1 reader → D2 letterbox + parity → D3 augmentation → D4 collate → D5 mixed sampling.
 5. R1–R3 optimiser/schedule/EMA → R4 devices → R5 checkpoints → R6 evaluation → E1 LOCO run → E2 +SORDI → E3 ablations.
 6. K1–K3 tracker core → K4–K5 ByteTrack + params → K6–K8 interface, voting, pallet behaviour → K11 tests → K10 zone integration + policy → 11.1 `pv-run`.
-7. Optional: O3 MuSGD, K9 OC-SORT; stage 2 fine-tune when footage exists. (STAL and ProgLoss are part of T2 and T3.)
+7. Optional: K9 OC-SORT; stage 2 fine-tune when footage exists. (STAL, ProgLoss and MuSGD are part of the baseline: T2, T3 and R1.)

@@ -277,6 +277,12 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.output_dir` | `runs/stage1` | Where `last.pt`, `best.pt` and `metrics.jsonl` are written. |
 | `train.val_every` | `0` | Score the LOCO validation split with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. `0` never scores. Needs `data=loco`. |
 | `data.val_limit` | `null` | Score only the first N validation images (smoke runs). |
+| `train.optimizer` | `musgd` | `musgd` (YOLO26's: SGD plus a Muon update on the convolution weights), `sgd`, or `adamw`. Weight decay is applied to the convolution weights only. |
+| `train.lr` | `0.01` | Peak learning rate (use `0.001` for `adamw`). |
+| `train.momentum` | `0.937` | Momentum (AdamW: its first beta). |
+| `train.muon_weight`, `train.sgd_weight` | `0.45`, `0.55` | How MuSGD mixes the two updates on the convolution weights (the YOLO26n values). |
+| `train.nominal_batch` | `64` | Gradients of `round(64 / batch_size)` batches are averaged before each update, so small batches act like one of 64; weight decay is scaled to match. `null` turns it off. |
+| `train.warmup_epochs`, `train.lr_final`, `train.lr_schedule` | `1`, `0.01`, `linear` | The rate climbs from 0 over the first epoch (at least 100 iterations), then falls along a straight line (or `cosine`) to 1% of `lr` at the last epoch. |
 | `train.resume` | `null` | `null` starts fresh, a path resumes from that checkpoint, `auto` resumes from `<output_dir>/last.pt` if it exists and starts fresh if not. Needs the same `train.epochs`. |
 
 #### Stopping and resuming
@@ -302,6 +308,8 @@ Before any real training, check that the model, assigner, loss and data reader a
 uv run pv-overfit --device mps                              # 8 real LOCO images, 800 steps (about 4 minutes on the M5 Pro)
 uv run pv-overfit --source synthetic --images 2 --size 64 --steps 300 --device cpu   # about a minute, no download
 ```
+
+By default it trains with AdamW at 1e-3, the settings it was validated with; `--optimizer musgd --lr 0.01 --momentum 0.937` checks the training optimiser the same way (also `sgd`).
 
 It passes when all three hold: the loss falls by at least 90%, AP50 on the training images is at least 0.95, and no image gets more than 1.25 times its object count (plus one) of confident boxes, which would mean duplicates. It exits with status 1 and lists the reasons when it fails. It also writes `overfit_<i>.jpg` pictures to `--out` (default `runs/overfit`), with labels in green and detections in red, so you can look at them. A falling loss alone proves little: after 120 steps on the synthetic images the loss was already down 94% while AP50 was 0.04.
 
