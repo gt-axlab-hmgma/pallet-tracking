@@ -88,3 +88,15 @@ def test_attention_core_matches_pytorch_reference() -> None:
     reference = reference.transpose(-2, -1).reshape(b, c, h, w)
     expected = block.proj(reference + block.pe(v.reshape(b, c, h, w)))
     assert torch.allclose(block(x), expected, atol=1e-6)
+
+
+def test_sppf_shortcut_adds_input_only_when_channels_match() -> None:
+    x = torch.randn(1, 32, 8, 8)
+    on = SPPF(32, 32, shortcut=True).eval()
+    for m in on.modules():
+        if isinstance(m, nn.Conv2d):
+            nn.init.zeros_(m.weight)
+    assert on.add
+    assert torch.equal(on(x), x)  # the pooled branch contributes 0, only the skip remains
+    assert not SPPF(32, 64, shortcut=True).add
+    assert not SPPF(32, 32).add

@@ -150,21 +150,24 @@ class SPPF(nn.Module):
     Three 5x5 max-pools applied one after another see windows of 5, 9 and 13 pixels (the
     second pool pools the first pool's result, and so on). The input and all three pooled
     maps are concatenated, so the final Conv sees fine and coarse context together.
+    With ``shortcut`` the block's input is added to its output (YOLO26 turns this on).
     """
 
-    def __init__(self, c_in: int, c_out: int, k: int = 5) -> None:
+    def __init__(self, c_in: int, c_out: int, k: int = 5, shortcut: bool = False) -> None:
         super().__init__()
         c_hidden = c_in // 2
         self.cv1 = Conv(c_in, c_hidden, 1)
         self.cv2 = Conv(4 * c_hidden, c_out, 1)
         self.pool = nn.MaxPool2d(k, stride=1, padding=k // 2)
+        self.add = shortcut and c_in == c_out  # residual only when the shapes allow it
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.cv1(x)
-        p1 = self.pool(x)
+        y = self.cv1(x)
+        p1 = self.pool(y)
         p2 = self.pool(p1)
         p3 = self.pool(p2)
-        return self.cv2(torch.cat((x, p1, p2, p3), dim=1))
+        out = self.cv2(torch.cat((y, p1, p2, p3), dim=1))
+        return out + x if self.add else out
 
 
 class Attention(nn.Module):
