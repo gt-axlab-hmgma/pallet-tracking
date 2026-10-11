@@ -26,7 +26,8 @@ class Conv(nn.Module):
         self.act = nn.SiLU() if act else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.act(self.bn(self.conv(x)))
+        out: torch.Tensor = self.act(self.bn(self.conv(x)))
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -52,7 +53,7 @@ class Bottleneck(nn.Module):
         self.add = shortcut and c_in == c_out
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        y = self.cv2(self.cv1(x))
+        y: torch.Tensor = self.cv2(self.cv1(x))
         return x + y if self.add else y
 
 
@@ -86,7 +87,8 @@ class C3(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+        out: torch.Tensor = self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+        return out
 
 
 class C3k(C3):
@@ -150,7 +152,8 @@ class C3k2(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         y = list(self.cv1(x).chunk(2, dim=1))
         y.extend(m(y[-1]) for m in self.m)
-        return self.cv2(torch.cat(y, dim=1))
+        out: torch.Tensor = self.cv2(torch.cat(y, dim=1))
+        return out
 
 
 class SPPF(nn.Module):
@@ -175,7 +178,7 @@ class SPPF(nn.Module):
         p1 = self.pool(y)
         p2 = self.pool(p1)
         p3 = self.pool(p2)
-        out = self.cv2(torch.cat((y, p1, p2, p3), dim=1))
+        out: torch.Tensor = self.cv2(torch.cat((y, p1, p2, p3), dim=1))
         return out + x if self.add else out
 
 
@@ -206,7 +209,8 @@ class Attention(nn.Module):
         q, k, v = qkv.split((self.key_dim, self.key_dim, self.head_dim), dim=2)
         attn = ((q.transpose(-2, -1) @ k) * self.scale).softmax(dim=-1)  # [b, heads, n, n]
         out = (v @ attn.transpose(-2, -1)).reshape(b, c, h, w)
-        return self.proj(out + self.pe(v.reshape(b, c, h, w)))
+        y: torch.Tensor = self.proj(out + self.pe(v.reshape(b, c, h, w)))
+        return y
 
 
 class PSABlock(nn.Module):
@@ -219,7 +223,8 @@ class PSABlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(x)
-        return x + self.ffn(x)
+        y: torch.Tensor = self.ffn(x)
+        return x + y
 
 
 class C2PSA(nn.Module):
@@ -241,4 +246,5 @@ class C2PSA(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         a, b = self.cv1(x).split((self.c, self.c), dim=1)
-        return self.cv2(torch.cat((a, self.m(b)), dim=1))
+        out: torch.Tensor = self.cv2(torch.cat((a, self.m(b)), dim=1))
+        return out

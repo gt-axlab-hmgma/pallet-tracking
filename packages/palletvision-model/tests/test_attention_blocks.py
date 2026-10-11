@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import torch
 from torch import nn
 
@@ -59,14 +61,14 @@ def test_c2psa_p5_shape_and_head_count_for_the_n_model() -> None:
     block = C2PSA(256, 256, n=1)
     assert block(torch.rand(1, 256, 20, 20)).shape == (1, 256, 20, 20)
     assert block.c == 128
-    assert block.m[0].attn.num_heads == 2  # c // 64
-    assert block.m[0].attn.key_dim == 32
+    assert cast(Any, block.m)[0].attn.num_heads == 2  # c // 64
+    assert cast(Any, block.m)[0].attn.key_dim == 32
 
 
 def test_c2psa_repeats_psablocks_and_survives_tiny_widths() -> None:
     block = C2PSA(32, 32, n=2)
     assert len(block.m) == 2
-    assert block.m[0].attn.num_heads == 1  # c = 16, so c // 64 would be 0; clamped to 1
+    assert cast(Any, block.m)[0].attn.num_heads == 1  # c = 16, so c // 64 would be 0; clamped to 1
     assert block(torch.rand(1, 32, 4, 4)).shape == (1, 32, 4, 4)
 
 

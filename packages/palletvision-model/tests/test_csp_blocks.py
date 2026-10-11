@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 import torch
 from torch import nn
@@ -48,7 +50,7 @@ def test_c3_keeps_spatial_size_and_sets_channels(block_cls: type[nn.Module]) -> 
 
 def test_c3k_uses_3x3_kernels_and_c3_uses_1x3() -> None:
     def kernel_sizes(block: C3) -> list[tuple[int, int]]:
-        return [(b.cv1.conv.kernel_size[0], b.cv2.conv.kernel_size[0]) for b in block.m]
+        return [(b.cv1.conv.kernel_size[0], b.cv2.conv.kernel_size[0]) for b in cast(Any, block.m)]
 
     assert kernel_sizes(C3(16, 16, n=2)) == [(1, 3), (1, 3)]
     assert kernel_sizes(C3k(16, 16, n=2)) == [(3, 3), (3, 3)]

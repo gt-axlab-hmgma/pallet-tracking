@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 import torch
 
@@ -45,13 +47,15 @@ def test_only_the_last_block_uses_attention_and_the_rest_use_c3k() -> None:
     _, neck = build()
     for block in (neck.td4, neck.td3, neck.bu4):
         assert all(isinstance(m, C3k) for m in block.m)
-    assert all(isinstance(m[0], Bottleneck) and isinstance(m[1], PSABlock) for m in neck.bu5.m)
+    assert all(
+        isinstance(m[0], Bottleneck) and isinstance(m[1], PSABlock) for m in cast(Any, neck.bu5.m)
+    )
 
 
 def test_attn_takes_priority_over_c3k_and_picks_heads_from_width() -> None:
     block = C3k2(32, 128, n=1, c3k=True, attn=True)  # c = 64 -> 1 head
-    assert isinstance(block.m[0][1], PSABlock)
-    assert block.m[0][1].attn.num_heads == 1
+    assert isinstance(cast(Any, block.m)[0][1], PSABlock)
+    assert cast(Any, block.m)[0][1].attn.num_heads == 1
     assert block(torch.rand(1, 32, 8, 8)).shape == (1, 128, 8, 8)
 
 
@@ -60,4 +64,4 @@ def test_gradients_flow_from_every_neck_output_back_to_the_backbone() -> None:
     neck = Neck(SIZES["n"], backbone.out_channels)
     outs = neck(*backbone(torch.rand(1, 3, 64, 64)))
     sum(t.sum() for t in outs).backward()
-    assert backbone.to_p3[0].conv.weight.grad.abs().sum() > 0
+    assert cast(Any, backbone.to_p3)[0].conv.weight.grad.abs().sum() > 0

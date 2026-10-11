@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 import torch
 
@@ -64,7 +66,7 @@ def test_gradients_reach_the_first_layer() -> None:
     backbone = Backbone(SIZES["n"])
     x = torch.rand(1, 3, 64, 64)
     sum(t.sum() for t in backbone(x)).backward()
-    assert backbone.to_p3[0].conv.weight.grad.abs().sum() > 0
+    assert cast(Any, backbone.to_p3)[0].conv.weight.grad.abs().sum() > 0
 
 
 def test_sppf_in_the_backbone_has_its_shortcut_on() -> None:
