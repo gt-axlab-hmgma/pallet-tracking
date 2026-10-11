@@ -1,10 +1,21 @@
 name: loco
 root: data/loco
-annotations: data/loco/annotations.json  # COCO format
-# every pallet-like label is mapped to the single stage-1 class
+# COCO-format boxes. image ids differ between files, and `file_name` is only a basename,
+# so the loader must locate each image from `images[].path` minus its leading "/dataset/".
+# Official splits by recording site (use unchanged): sub1 and sub4 are val, the rest train.
+annotations:
+  train:
+    - data/loco/annotations/loco-sub2-v1-train.json
+    - data/loco/annotations/loco-sub3-v1-train.json
+    - data/loco/annotations/loco-sub5-v1-train.json
+  val:
+    - data/loco/annotations/loco-sub1-v1-val.json
+    - data/loco/annotations/loco-sub4-v1-val.json
+# LOCO categories: small_load_carrier, forklift, pallet, stillage, pallet_truck.
+# Every pallet-like label is mapped to the single stage-1 class. Undecided: a pallet truck
+# is not a pallet (guide section 3.2). Unlisted categories are dropped.
 class_map:
   pallet: pallet
   pallet_truck: pallet
   stillage: pallet
-val_fraction: 0.1
 num_workers: 4
