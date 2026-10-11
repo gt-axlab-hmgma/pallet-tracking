@@ -66,7 +66,10 @@ def postprocess(
     scores = cls_logits.sigmoid().flatten(1)  # [B, A * nc]: one entry per (cell, class) pair
     k = min(max_det, scores.shape[1])
     top_scores, top_idx = torch.topk(scores, k, dim=1)  # sorted, highest first
-    cell = torch.div(top_idx, num_classes, rounding_mode="floor")
+    # cell = index // nc, done in float so the ONNX graph is one Div and one Floor instead of the
+    # long integer chain (Mod, Xor, Where...) that TensorRT's parser may reject. Exact because
+    # the index stays far below 2**24 and each class step is at least 1 / nc (nc <= 100 here).
+    cell = torch.floor(top_idx.to(boxes.dtype) / num_classes).long()
     cls = top_idx - cell * num_classes  # the remainder, written without % for clean export
 
     top_boxes = boxes.gather(1, cell.unsqueeze(-1).expand(-1, -1, 4))
