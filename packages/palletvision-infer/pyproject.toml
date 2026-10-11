@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 license = "LicenseRef-Proprietary"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
+  "palletvision-preprocess",
   "numpy>=1.26",
   "opencv-python>=4.10",
   "onnxruntime>=1.18",
@@ -22,3 +23,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/palletvision_infer"]
+
+[tool.uv.sources]
+palletvision-preprocess = { workspace = true }
