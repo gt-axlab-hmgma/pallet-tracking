@@ -12,10 +12,11 @@ annotations:
     - data/loco/annotations/loco-sub1-v1-val.json
     - data/loco/annotations/loco-sub4-v1-val.json
 # LOCO categories: small_load_carrier, forklift, pallet, stillage, pallet_truck.
-# Every pallet-like label is mapped to the single stage-1 class. Undecided: a pallet truck
-# is not a pallet (guide section 3.2). Unlisted categories are dropped.
+# Stage 1 keeps pallets and stillages (cargo on a pallet-like base) as the single class
+# `pallet`. Pallet trucks are vehicles, not pallets, and a parked one must not raise a pallet
+# event. Categories not listed here (pallet_truck, forklift, small_load_carrier) are dropped.
+# Revisit stillages when HMGMA's real pallet types are known (stage 2).
 class_map:
   pallet: pallet
-  pallet_truck: pallet
   stillage: pallet
 num_workers: 4
