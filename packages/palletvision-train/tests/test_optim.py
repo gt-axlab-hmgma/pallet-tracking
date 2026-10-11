@@ -300,11 +300,14 @@ def test_the_defaults_train_with_musgd_warmup_and_accumulation(tmp_path: Path) -
     cfg = config(tmp_path=tmp_path)
     assert (cfg.train.optimizer, cfg.train.nominal_batch, cfg.train.warmup_epochs) == (
         "musgd",
-        64,
+        128,
         1,
     )
     assert (cfg.train.momentum, cfg.train.muon_weight, cfg.train.sgd_weight) == (0.937, 0.45, 0.55)
     assert (cfg.train.lr_schedule, cfg.train.warmup_bias_lr) == ("linear", 0.1)
+    assert (
+        cfg.train.weight_decay == 0.001
+    )  # the report's 5e-4 x batch 128 / 64, as Ultralytics scales it
     result = train_from_config(cfg)
     assert len(result.losses) == 4 and np.isfinite(result.losses).all()
     assert (
