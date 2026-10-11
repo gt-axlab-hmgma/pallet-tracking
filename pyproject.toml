@@ -28,4 +28,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages"]
-addopts = "-ra"
+addopts = "-ra -m 'not slow'"
+markers = ["slow: takes about a minute or more; run with `uv run pytest -m slow`"]
