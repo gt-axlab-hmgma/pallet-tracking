@@ -20,3 +20,4 @@ class_map:
   pallet: pallet
   stillage: pallet
 num_workers: 4
+limit: null  # keep only the first N training images (smoke runs, overfit gate)
