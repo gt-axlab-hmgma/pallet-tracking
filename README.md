@@ -249,23 +249,29 @@ Use the same `size` everywhere: the value you trained with is the value you expo
 
 ### `pv-train`: train a model
 
-Trains the detector and saves a checkpoint to `<output_dir>/last.pt`. Arguments are [Hydra](https://hydra.cc) overrides written as `key=value` (defaults live in `configs/`).
+Trains the YOLO26 detector (both heads, the task-aligned assigner and the loss) and saves a checkpoint to `<output_dir>/last.pt`. Arguments are [Hydra](https://hydra.cc) overrides written as `key=value` (defaults live in `configs/`).
 
 ```bash
+# a few steps on generated boxes (no download)
 uv run pv-train data=synthetic data.size=64 data.num_samples=16 model.input_size=64 train.max_steps=4
+
+# real LOCO images (needs data/loco): the first 8 images only, to check everything agrees
+uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 train.epochs=12 train.batch_size=4 device=cpu
 ```
 
 | Override | Default | Meaning |
 | --- | --- | --- |
-| `data` | `loco` | Dataset. Only `synthetic` works for now (generated boxes, no download). |
+| `data` | `loco` | Dataset: `loco` (needs `data/loco`) or `synthetic` (generated boxes, no download). |
 | `data.size` | `640` | Synthetic image size in pixels. |
 | `data.num_samples` | `64` | Number of synthetic images. |
-| `model.input_size` | `640` | Model input size. Keep equal to `data.size`. |
+| `data.limit` | `null` | Keep only the first N training images (smoke runs, overfit checks). |
+| `data.num_workers` | `4` (loco) | Loader worker processes. |
+| `model.input_size` | `640` | Model input size; images are letterboxed to it. Keep equal to `data.size` for synthetic data. |
 | `device` | `auto` | `auto`, `cpu`, `cuda` or `mps`. |
 | `train.epochs` | `100` | Passes over the data. |
 | `train.batch_size` | `16` | Images per step. |
 | `train.lr` | `0.001` | Learning rate. |
-| `train.amp` | `true` | fp16 autocast, only used on cuda/mps. |
+| `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
 | `train.output_dir` | `runs/stage1` | Where `last.pt` is written. |
 
@@ -379,7 +385,7 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | COCO subset (~10k) | Optional, M1 | Stage-0 check that the reimplementation matches published curves; run on a cluster. |
 | HMGMA footage | Stage 2 only | Lab machine or PACE only, never this repo. |
 
-The LOCO loader is not wired into `pv-train` yet; until then use `data=synthetic`. The zone demo needs no dataset.
+`pv-train` reads LOCO through the official train files listed in `configs/data/loco.yaml`. The zone demo needs no dataset.
 
 ## Development
 
