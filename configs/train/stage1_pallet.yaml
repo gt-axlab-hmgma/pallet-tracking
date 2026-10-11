@@ -2,11 +2,11 @@ epochs: 150  # the report's pretraining recipe (Table S2)
 batch_size: 16
 optimizer: musgd  # musgd (YOLO26's, lr 0.01), sgd (lr 0.01) or adamw (lr 0.001)
 lr: 0.01  # YOLO26 report, Table S2
-weight_decay: 0.0005  # at the nominal batch; scaled by the effective batch / nominal_batch
+weight_decay: 0.001  # at the nominal batch. The report's 0.0005 is scaled by batch 128 / 64 in Ultralytics, giving 0.001 at batch 128
 momentum: 0.937  # (MuSGD and SGD) momentum, or AdamW's first beta; the report prints it rounded to 0.94
 muon_weight: 0.45  # MuSGD: weight of the Muon update (YOLO26n, report Table S4)
 sgd_weight: 0.55  # MuSGD: weight of the SGD update on the same weights
-nominal_batch: 64  # gradient accumulation makes smaller batches act like this one (null: off)
+nominal_batch: 128  # the report's batch; 8 batches of 16 are accumulated (a real batch of 128 needs about 80 GB here)
 warmup_epochs: 1  # the learning rate climbs from 0 over these epochs, at least 100 iterations (the report: 1)
 warmup_bias_lr: 0.1  # sgd and musgd: biases start here and fall to the scheduled rate (0.1, our choice; the report does not give it)
 lr_final: 0.01  # the rate at the last epoch, as a fraction of lr
