@@ -30,6 +30,17 @@ class Conv(nn.Module):
         return out
 
 
+class DWConv(Conv):
+    """Depthwise Conv: every channel gets its own filter, so channels do not mix.
+
+    Much cheaper than a full Conv (``c * k * k`` weights instead of ``c * c * k * k``). It is
+    normally followed by a 1x1 Conv, which does the channel mixing.
+    """
+
+    def __init__(self, c: int, k: int = 3, s: int = 1, act: bool = True) -> None:
+        super().__init__(c, c, k, s, groups=c, act=act)
+
+
 class Bottleneck(nn.Module):
     """Two Convs in a row, with the input added back on top (a residual / skip connection).
 
