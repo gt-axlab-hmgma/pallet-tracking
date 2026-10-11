@@ -11,4 +11,5 @@ def test_root_config_composes() -> None:
     assert cfg.device == "auto"
     assert cfg.model.num_classes == 1
     assert cfg.train.output_dir == "runs/stage1"
-    assert "pallet_truck" in cfg.data.class_map
+    # stage 1: pallets and stillages are the one class; pallet trucks and the rest are dropped
+    assert dict(cfg.data.class_map) == {"pallet": "pallet", "stillage": "pallet"}
