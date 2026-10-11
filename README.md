@@ -269,7 +269,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `data.num_workers` | `4` (loco) | Loader worker processes. |
 | `model.input_size` | `640` | Model input size; images are letterboxed to it. Keep equal to `data.size` for synthetic data. |
 | `device` | `auto` | `auto`, `cpu`, `cuda` or `mps`. |
-| `train.epochs` | `150` | Passes over the data (the report's pretraining recipe). About 3 min each on the M5 Pro. |
+| `train.epochs` | `150` | Passes over the data (the report's pretraining recipe). About 1.5 min each on the M5 Pro. |
 | `train.batch_size` | `16` | Images per step. |
 | `train.lr` | `0.001` | Learning rate. |
 | `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
@@ -281,7 +281,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.lr` | `0.01` | Peak learning rate (use `0.001` for `adamw`). |
 | `train.momentum` | `0.937` | Momentum (AdamW: its first beta). |
 | `train.muon_weight`, `train.sgd_weight` | `0.45`, `0.55` | How MuSGD mixes the two updates on the convolution weights (the YOLO26n values). |
-| `train.nominal_batch` | `64` | Gradients of `round(64 / batch_size)` batches are averaged before each update, so small batches act like one of 64; weight decay is scaled to match. `null` turns it off. |
+| `train.nominal_batch` | `128` | Gradients of `round(128 / batch_size)` batches are averaged before each update, so small batches act like one of 128 (the report's batch; a real batch of 128 needs about 80 GB of memory, and memory grows about 0.6 GB per image); weight decay is scaled to match. `null` turns it off. |
 | `train.warmup_epochs`, `train.lr_final`, `train.lr_schedule` | `1`, `0.01`, `linear` | The rate climbs from 0 over the first epoch (at least 100 iterations), then falls along a straight line (or `cosine`) to 1% of `lr` at the last epoch. |
 | `train.resume` | `null` | `null` starts fresh, a path resumes from that checkpoint, `auto` resumes from `<output_dir>/last.pt` if it exists and starts fresh if not. Needs the same `train.epochs`. |
 
