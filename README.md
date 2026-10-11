@@ -250,7 +250,7 @@ Use the same `size` everywhere: the value you trained with is the value you expo
 
 ### `pv-train`: train a model
 
-Trains the YOLO26 detector (both heads, the task-aligned assigner and the loss) and saves a checkpoint to `<output_dir>/last.pt`. Arguments are [Hydra](https://hydra.cc) overrides written as `key=value` (defaults live in `configs/`).
+Trains the YOLO26 detector (both heads, the task-aligned assigner and the loss). It writes to `<output_dir>` (default `runs/stage1`): `last.pt`, a checkpoint saved after every epoch; `best.pt`, saved whenever a validation score improves (once evaluation exists, #40); and `metrics.jsonl`, one JSON line per step and per epoch, written as the run goes, so `tail -f runs/stage1/metrics.jsonl` shows a live run. Arguments are [Hydra](https://hydra.cc) overrides written as `key=value` (defaults live in `configs/`).
 
 ```bash
 # a few steps on generated boxes (no download)
@@ -274,7 +274,12 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.lr` | `0.001` | Learning rate. |
 | `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
-| `train.output_dir` | `runs/stage1` | Where `last.pt` is written. |
+| `train.output_dir` | `runs/stage1` | Where `last.pt`, `best.pt` and `metrics.jsonl` are written. |
+| `train.resume` | `null` | `null` starts fresh, a path resumes from that checkpoint, `auto` resumes from `<output_dir>/last.pt` if it exists and starts fresh if not. Needs the same `train.epochs`. |
+
+#### Stopping and resuming
+
+A checkpoint holds the weights, the optimiser and the state of every random number generator, so a resumed run follows exactly the loss curve an uninterrupted one would. If a run dies or you stop it, start it again with the same command plus `train.resume=auto`; it continues from the last finished epoch (the unfinished one is redone from its start) and trims the log so each step appears once. Checkpoints are written to a temporary file and renamed, so a crash while saving never damages the previous one. `train.max_steps` is for quick smoke tests; a run cut short by it leaves a checkpoint for inspection, and resuming it replays the unfinished epoch.
 
 ### `pv-overfit`: the overfit gate
 
