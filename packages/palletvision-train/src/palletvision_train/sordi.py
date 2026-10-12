@@ -10,6 +10,7 @@ SORDI is far larger than LOCO and it is synthetic, so it must never swamp the re
 ``MixedSampler`` builds each epoch from every real image plus a random draw of synthetic ones.
 """
 
+import hashlib
 import json
 import random
 from collections.abc import Iterator, Mapping, Sequence
@@ -17,10 +18,35 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 from PIL import Image
 from torch.utils.data import Sampler
 
-from palletvision_train.coco import MIN_SIDE, ImageRecord
+from palletvision_train.coco import MIN_SIDE, CocoDetection, ImageRecord
+
+REPO = Path(__file__).resolve().parents[4]
+
+
+SPLITS = ("train", "val", "test")
+
+
+def split_of(key: str, fractions: Sequence[float] = (0.70, 0.15, 0.15)) -> str:
+    """Which split (``train``, ``val`` or ``test``) the image called ``key`` belongs to.
+
+    The key is hashed, so the answer is the same in every process and every run, and adding more
+    scenes later never moves an image that already has a split (a seeded shuffle would). Use a
+    key that names the image uniquely, like ``sordid-01/DR-2/123``.
+    """
+    if len(fractions) != len(SPLITS) or abs(sum(fractions) - 1) > 1e-6 or min(fractions) < 0:
+        raise ValueError(f"fractions must be three non-negative numbers summing to 1: {fractions}")
+    digest = hashlib.sha256(key.encode()).digest()
+    point = int.from_bytes(digest[:8], "big") / 2**64  # uniform in [0, 1)
+    edge = 0.0
+    for name, fraction in zip(SPLITS, fractions, strict=True):
+        edge += fraction
+        if point < edge:
+            return name
+    return SPLITS[-1]  # rounding error at the very top of the range
 
 
 def scene_folders(root: Path | str) -> list[Path]:
@@ -43,14 +69,25 @@ def scene_folders(root: Path | str) -> list[Path]:
 
 
 def load_sordi_records(
-    root: Path | str, class_map: Mapping[str, str], classes: Sequence[str]
+    root: Path | str,
+    class_map: Mapping[str, str],
+    classes: Sequence[str],
+    *,
+    split: str | None = None,
+    fractions: Sequence[float] = (0.70, 0.15, 0.15),
+    key_prefix: str = "",
 ) -> list[ImageRecord]:
     """One record per image of a SORDI scene folder, sorted by image number.
 
     ``class_map`` maps SORDI class names to trained class names (others are dropped) and
     ``classes`` fixes the class index, as in ``load_records``. An image with no mapped object
     stays in as an empty example. Every image needs a label file and vice versa.
+
+    With ``split`` only the images ``split_of`` puts in that split are kept; the image key is
+    ``<key_prefix>/<image number>``, so give it the scene and level (``sordid-01/DR-2``).
     """
+    if split is not None and split not in SPLITS:
+        raise ValueError(f"split must be one of {SPLITS}, got {split!r}")
     class_index = {name: i for i, name in enumerate(classes)}
     unknown = set(class_map.values()) - set(class_index)
     if unknown:
@@ -70,6 +107,8 @@ def load_sordi_records(
 
     records: list[ImageRecord] = []
     for name in sorted(images, key=lambda s: (len(s), s)):  # 2 before 10
+        if split is not None and split_of(f"{key_prefix}/{name}", fractions) != split:
+            continue
         rows = []
         for obj in json.loads(labels[name].read_text()):
             cls = class_map.get(obj["ObjectClassName"])
@@ -84,6 +123,47 @@ def load_sordi_records(
         array = np.array(rows, dtype=np.float32).reshape(-1, 5)
         records.append(ImageRecord(images[name], width, height, array))
     return records
+
+
+def sordi_records(
+    roots: Sequence[str],
+    class_map: Mapping[str, str],
+    classes: Sequence[str],
+    split: str,
+    fractions: Sequence[float] = (0.70, 0.15, 0.15),
+    repo: Path = REPO,
+) -> list[ImageRecord]:
+    """The ``split`` images of every scene folder under ``roots`` (paths relative to ``repo``)."""
+    records: list[ImageRecord] = []
+    for root in roots:
+        for folder in scene_folders(repo / root):
+            prefix = folder.relative_to((repo / root).parent).as_posix()  # sordid-01/DR-2
+            records += load_sordi_records(
+                folder, class_map, classes, split=split, fractions=fractions, key_prefix=prefix
+            )
+    return records
+
+
+def subsample(
+    records: Sequence[ImageRecord], count: int | None, seed: int = 0
+) -> list[ImageRecord]:
+    """A fixed random ``count`` of the records, in their original order (all when ``None``)."""
+    if count is None or count >= len(records):
+        return list(records)
+    keep = sorted(random.Random(seed).sample(range(len(records)), count))
+    return [records[i] for i in keep]
+
+
+def sordi_reader(split: str, repo: Path = REPO) -> CocoDetection:
+    """The SORDI ``train``, ``val`` or ``test`` split exactly as ``configs/data/loco_sordi.yaml``
+    lists it (every scene in ``sordi.roots``, split by ``sordi.fractions``)."""
+    data = yaml.safe_load((repo / "configs/data/loco_sordi.yaml").read_text())
+    classes = yaml.safe_load((repo / "contracts/classes.yaml").read_text())["stage1"]
+    sordi = data["sordi"]
+    records = sordi_records(
+        sordi["roots"], sordi["class_map"], classes, split, sordi["fractions"], repo
+    )
+    return CocoDetection(records)
 
 
 class MixedSampler(Sampler[int]):
