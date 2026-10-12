@@ -56,6 +56,18 @@ Useful options (add them after the script name; `bash scripts/pallet-job.sh run 
 
 Keep the machine awake: the job asks the system not to sleep on a Mac and on Windows while it runs; plug in a laptop and set a high-performance power plan.
 
+## One big run sized to a time budget (for example the 5060 laptop overnight)
+
+Real and synthetic images are treated alike: LOCO's train images and a random subsample of SORDI's form one train set, **every epoch is all of it**, and the set is made as large as the time allows for 150 epochs. LOCO is split by whole site, SORDI 70/15/15 by a hash of the image name, so overall about 70/15/15 by images; LOCO is not split by frame because its frames are video and would leak between train and test.
+
+1. **Data** (public only): copy `data/loco` and `data/sordid-NN` for the scenes you want from another machine (a USB drive is fastest: LOCO is 1 GB, the five rich scenes 63 GB), or `bash scripts/pallet-job.sh fetch --scenes 02,06` (needs a Kaggle token; LOCO downloaded at about 2.7 MB/s). `pv-job check --scenes ...` says what is missing.
+2. **Prove the GPU first (about 5 minutes):** `scripts\pallet-job.bat run --smoke --amp`. This is the first run on CUDA anywhere; if it fails, send `runs\job-<name>\train.log`.
+3. **Start the big run:** `scripts\pallet-job.bat run --budget-hours 14 --amp --scenes 01,02,04,05,06 --name big`. It first measures the training speed (a minute), prints the plan (how many train images, epochs, image views), then trains. Budget 14 h for a 17 h window: setup, the final scoring and buffer take the rest.
+4. **Settings that matter on an 8 GB card:** `--amp` (bfloat16 on the 50-series) roughly doubles speed and halves memory but its effect on accuracy is not validated; batch size 16 is the default, a crash from running out of memory before the first checkpoint halves it automatically, or pass `--batch-size 8`. Plug in, high-performance power plan, pause Windows Update; the job keeps the PC awake while it runs.
+5. **Result:** `runs\results-big\` and a zip beside it, as for any run. `plan` in `manifest.json` records the sizing.
+
+How the size is chosen: measured step speed (generated images, so no data loading) x 0.6 (`--speed-margin`, a guess for loading, augmentation and scoring) x the budget, divided by the epochs. If the real speed is lower the run overruns; `last.pt` and `best.pt` are saved every epoch, so a run stopped early still leaves a usable model, but its learning rate has not finished decaying. `--train-images T` sets the size directly.
+
 ## Fine-tuning from pretrained weights
 
 `bash scripts/pallet-job.sh run --init-from <checkpoint.pt>` starts the run from another checkpoint's weights (weights only, not the optimiser or epoch; tensors whose shape differs, like a class head of another size, start fresh). It is the way to fine-tune a model pretrained on a larger dataset. **Which dataset to pretrain on is a licence question: read `docs/pretraining.md` first.**
