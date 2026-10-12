@@ -5,19 +5,21 @@ import hydra
 import torch
 import yaml
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import Dataset, Subset
+from torch.utils.data import ConcatDataset, Dataset, Sampler, Subset
 
 from palletvision_model.config import ModelConfig
 from palletvision_model.device import resolve_device
 from palletvision_model.yolo26 import YOLO26
-from palletvision_train.coco import CocoDetection, loco_reader
+from palletvision_train.coco import CocoDetection, ImageRecord, loco_reader
 from palletvision_train.data import LetterboxedDataset, Sample
 from palletvision_train.evaluate import evaluate
+from palletvision_train.sordi import MixedSampler, load_sordi_records, scene_folders
 from palletvision_train.synthetic import SyntheticBoxes
 from palletvision_train.trainer import TrainResult, train
 
 REPO = Path(__file__).resolve().parents[4]
 CONFIG_DIR = str(REPO / "configs")
+LOCO_DATA = {"loco", "loco_sordi"}  # datasets whose real part (and validation) is LOCO
 
 
 def build_model(cfg: DictConfig, num_classes: int) -> YOLO26:
@@ -35,7 +37,7 @@ def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
     size = cfg.model.input_size
     if cfg.data.name == "synthetic":
         base: Dataset[Sample] = SyntheticBoxes(cfg.data.num_samples, cfg.data.size, cfg.seed)
-    elif cfg.data.name == "loco":
+    elif cfg.data.name in LOCO_DATA:
         data = OmegaConf.to_container(cfg.data, resolve=True)
         assert isinstance(data, dict)
         base = CocoDetection.from_config({str(k): v for k, v in data.items()}, "train", classes)
@@ -45,7 +47,34 @@ def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
     limit = cfg.data.get("limit")
     if limit is not None:
         dataset = Subset(dataset, range(min(int(limit), len(dataset))))  # type: ignore[arg-type]
+    if cfg.data.name == "loco_sordi":  # real images first, then the synthetic pool
+        dataset = ConcatDataset([dataset, build_sordi(cfg, classes)])
     return dataset
+
+
+def build_sordi(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
+    """The letterboxed synthetic pool: every scene folder in ``data.sordi.roots``."""
+    sordi = cfg.data.sordi
+    mapping = OmegaConf.to_container(sordi.class_map, resolve=True)
+    assert isinstance(mapping, dict)
+    class_map = {str(k): str(v) for k, v in mapping.items()}
+    records: list[ImageRecord] = []
+    for root in sordi.roots:
+        for folder in scene_folders(REPO / root):
+            records += load_sordi_records(folder, class_map, classes)
+    pool: Dataset[Sample] = LetterboxedDataset(CocoDetection(records), cfg.model.input_size)
+    if sordi.get("limit") is not None:
+        pool = Subset(pool, range(min(int(sordi.limit), len(pool))))  # type: ignore[arg-type]
+    return pool
+
+
+def build_sampler(cfg: DictConfig, dataset: Dataset[Sample]) -> Sampler[int] | None:
+    """The mixed real/synthetic epoch for ``data=loco_sordi``; every other dataset shuffles."""
+    if cfg.data.name != "loco_sordi":
+        return None
+    assert isinstance(dataset, ConcatDataset)
+    real, synthetic = dataset.datasets
+    return MixedSampler(len(real), len(synthetic), cfg.data.sordi.share)  # type: ignore[arg-type]
 
 
 def resume_path(cfg: DictConfig) -> Path | None:
@@ -64,7 +93,7 @@ def build_metric(cfg: DictConfig) -> Callable[[YOLO26], float] | None:
     """``train.val_every`` > 0 scores the LOCO validation split with mAP50-95 every N epochs."""
     if not cfg.train.get("val_every"):
         return None
-    if cfg.data.name != "loco":
+    if cfg.data.name not in LOCO_DATA:
         raise SystemExit("train.val_every needs data=loco: only LOCO has a validation split")
     reader = loco_reader("val")
     limit = cfg.data.get("val_limit")
@@ -101,6 +130,7 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
         num_workers=cfg.data.get("num_workers", 0), resume=resume_path(cfg),
         metric_fn=build_metric(cfg), metric_every=cfg.train.get("val_every") or 1,
         config={str(k): v for k, v in config.items()},
+        sampler=build_sampler(cfg, dataset),
     )  # fmt: skip
 
 
