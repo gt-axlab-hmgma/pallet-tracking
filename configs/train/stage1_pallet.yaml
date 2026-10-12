@@ -16,5 +16,12 @@ amp_dtype: auto  # bfloat16 | float16 | auto (cuda: bfloat16 if the GPU supports
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1
 init_from: null  # a checkpoint whose weights start this run (pretraining -> fine-tuning): weights only, class heads of another shape stay fresh
+pretrained_lr_mult: 1.0  # with init_from: the copied tensors train at this multiple of lr (e.g. 0.2); the fresh ones at lr
+alpha_schedule: epoch  # progressive-loss weight: epoch (the report's, once per epoch) or step (every step; for runs of a few epochs)
+alpha_init: 0.8  # one-to-many weight at the start (the report's); a converged pretrained model can start lower, e.g. 0.3
+alpha_final: 0.1
+ema: false  # keep an exponential moving average of the weights: it is scored and saved as the model
+ema_decay: 0.9999  # about 1 / (1 - decay) updates are averaged: 0.99 to 0.995 for a fine-tune of a thousand updates
+ema_tau: 2000  # the decay ramps up over about this many updates
 resume: null  # null starts fresh; a checkpoint path resumes it; "auto" resumes <output_dir>/last.pt if present
 val_every: 0  # score the validation split every N epochs (and after the last); 0 never. Needs data=loco

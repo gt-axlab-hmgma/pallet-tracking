@@ -18,6 +18,7 @@ from palletvision_model.yolo26 import YOLO26
 from palletvision_train.checkpoint import load_checkpoint, save_checkpoint
 from palletvision_train.data import Sample, collate
 from palletvision_train.distributed import RawForward, average, current
+from palletvision_train.ema import ModelEMA
 from palletvision_train.optim import Schedule, build_optimizer
 from palletvision_train.precision import configure_backend, plan_amp
 from palletvision_train.runlog import RunLog
@@ -71,11 +72,21 @@ def train(
     sampler: Sampler[int] | None = None,
     on_epoch_start: Callable[[int], None] | None = None,
     seed: int = 0,
+    pretrained: set[str] | None = None,
+    pretrained_lr_mult: float = 1.0,
+    alpha_schedule: str = "epoch",
+    alpha_init: float = 0.8,
+    alpha_final: float = 0.1,
+    ema: bool = False,
+    ema_decay: float = 0.9999,
+    ema_tau: float = 2000.0,
 ) -> TrainResult:
     """Train ``model`` on letterboxed ``(image, labels)`` samples.
 
     Each step runs both heads, lets the loss assign targets and score them, and updates the
-    weights. The one-to-many weight ``alpha`` is set once per epoch from ``progressive_alpha``.
+    weights. The one-to-many weight ``alpha`` follows ``progressive_alpha`` from ``alpha_init`` to
+    ``alpha_final``: set once per epoch (``alpha_schedule="epoch"``, the report's) or every step
+    (``"step"``, needed when there are only a few epochs).
     The loss itself always runs in float32; only the forward pass uses reduced precision when
     ``amp`` is on (``amp_dtype``: ``bfloat16`` or ``float16``, see ``plan_amp``; ``auto`` picks
     bfloat16 on a CUDA card that supports it).
@@ -98,6 +109,12 @@ def train(
     batches are averaged before each update, and weight decay is scaled by the effective batch
     over ``nominal_batch``. The learning rate warms up for ``warmup_epochs`` and then decays to
     ``lr * lr_final`` (see ``Schedule``); the defaults keep it constant.
+
+    **Fine-tuning.** ``pretrained`` names the parameters that start from pretrained weights; they
+    train at ``pretrained_lr_mult`` times the learning rate of the others (see ``build_optimizer``).
+    ``ema`` keeps an exponential moving average of the weights (see ``ModelEMA``): it is what
+    ``metric_fn`` scores and what ``last.pt`` and ``best.pt`` hold as ``model``; the weights being
+    trained go to ``raw_model`` for resuming.
 
     ``sampler`` chooses which images each epoch uses (default: every image once, shuffled); an
     epoch is as long as the sampler says, e.g. ``MixedSampler``.
@@ -132,7 +149,10 @@ def train(
     accumulate = max(round(nominal_batch / per_step), 1) if nominal_batch else 1
     if nominal_batch:
         weight_decay *= per_step * accumulate / nominal_batch
-    optimizer = build_optimizer(model, optimizer_name, lr, weight_decay, momentum, muon, sgd)
+    optimizer = build_optimizer(
+        model, optimizer_name, lr, weight_decay, momentum, muon, sgd, pretrained, pretrained_lr_mult
+    )
+    averaged = ModelEMA(model, ema_decay, ema_tau) if ema else None
     if info.distributed and sampler is None:
         sampler = DistributedSampler(
             dataset, num_replicas=info.world_size, rank=info.rank, shuffle=True, seed=seed
@@ -156,7 +176,7 @@ def train(
     result = TrainResult(checkpoint=last)
     done_epochs, steps, best_metric = 0, 0, None
     if resume is not None:
-        resumed = load_checkpoint(Path(resume), model, optimizer)
+        resumed = load_checkpoint(Path(resume), model, optimizer, averaged)
         if resumed.epochs != epochs:
             raise ValueError(
                 f"{resume} was started for {resumed.epochs} epochs but this run asks for {epochs}; "
@@ -184,12 +204,12 @@ def train(
         if main:
             save_checkpoint(
                 path, model=model, optimizer=optimizer, epoch=done_epochs, steps=steps,
-                epochs=epochs, best_metric=best_metric, config=config,
+                epochs=epochs, best_metric=best_metric, config=config, ema=averaged,
             )  # fmt: skip
 
     stopped = False
     for epoch in range(done_epochs, epochs):
-        alpha = progressive_alpha(epoch, epochs)
+        alpha = progressive_alpha(epoch, epochs, alpha_init, alpha_final)
         if on_epoch_start is not None:
             on_epoch_start(epoch)
         set_epoch = getattr(sampler, "set_epoch", None)  # DistributedSampler, MixedSampler
@@ -201,6 +221,8 @@ def train(
                 stopped = True
                 break
             batch = batch.to(dev, non_blocking=dev.type == "cuda")
+            if alpha_schedule == "step":  # a fractional epoch: the weight moves with every step
+                alpha = progressive_alpha(steps / len(loader), epochs, alpha_init, alpha_final)
             update_now = (index + 1) % accumulate == 0 or index + 1 == len(loader)
             # gradients are averaged across processes only on the batch that ends an update
             no_sync = (
@@ -224,6 +246,8 @@ def train(
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
                 result.updates += 1
+                if averaged is not None:
+                    averaged.update(model)
             steps += 1
             shown = average(torch.stack([total.detach(), *parts.values()]).float())
             total_value, numbers = (
@@ -234,7 +258,9 @@ def train(
             result.parts.append(numbers)
             result.alphas.append(alpha)
             epoch_losses.append(total_value)
-            rate = next(g["lr"] for g in optimizer.param_groups if g["name"] == "weight")
+            rate = next(
+                g["lr"] for g in optimizer.param_groups if g["name"] in ("weight", "weight_pre")
+            )
             if log is not None:
                 log.write(
                     "step", epoch=epoch, step=steps, alpha=alpha, lr=rate, loss=total_value,
@@ -249,11 +275,12 @@ def train(
             done_epochs % metric_every == 0 or done_epochs == epochs
         )
         if metric_fn is not None and scored and main:  # the others wait at the barrier below
+            scored_model = averaged.module if averaged is not None else model
             model.eval()
             with torch.no_grad():
-                metric = metric_fn(model)
+                metric = metric_fn(scored_model)
                 if extra_metrics_fn is not None:
-                    extras = extra_metrics_fn(model)
+                    extras = extra_metrics_fn(scored_model)
             model.train()
             if best_metric is None or metric > best_metric:
                 best_metric = metric

@@ -197,9 +197,11 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
     torch.manual_seed(cfg.seed)
     classes = yaml.safe_load((REPO / "contracts" / "classes.yaml").read_text())["stage1"]
     model = build_model(cfg, len(classes))
+    pretrained: set[str] | None = None
     if cfg.train.get("init_from"):
         copied, skipped = load_pretrained(model, REPO / cfg.train.init_from)
-        print(f"started from {cfg.train.init_from}: {copied} tensors copied, {len(skipped)} fresh")
+        pretrained = set(copied)
+        print(f"started from {cfg.train.init_from}: {len(copied)} copied, {len(skipped)} fresh")
     dataset = build_dataset(cfg, classes)
     config = OmegaConf.to_container(cfg, resolve=True)
     assert isinstance(config, dict)
@@ -216,6 +218,11 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
         num_workers=cfg.data.get("num_workers", 0), resume=resume_path(cfg),
         metric_fn=build_metric(cfg), metric_every=cfg.train.get("val_every") or 1,
         extra_metrics_fn=build_extra_metrics(cfg, classes),
+        pretrained=pretrained, pretrained_lr_mult=cfg.train.get("pretrained_lr_mult", 1.0),
+        alpha_schedule=cfg.train.get("alpha_schedule", "epoch"),
+        alpha_init=cfg.train.get("alpha_init", 0.8), alpha_final=cfg.train.get("alpha_final", 0.1),
+        ema=cfg.train.get("ema", False), ema_decay=cfg.train.get("ema_decay", 0.9999),
+        ema_tau=cfg.train.get("ema_tau", 2000.0),
         config={str(k): v for k, v in config.items()},
         sampler=build_sampler(cfg, dataset), on_epoch_start=build_epoch_hook(cfg, dataset),
         seed=cfg.seed,
