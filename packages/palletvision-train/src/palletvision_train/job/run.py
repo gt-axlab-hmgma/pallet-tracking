@@ -46,6 +46,7 @@ class JobConfig:
     share: float | None = None  # synthetic share of each epoch; None: real and synthetic alike
     epoch_images: int | None = 5640  # images per epoch when share is None; None: the whole pool
     amp: bool = False  # mixed precision (bfloat16 on cards that have it)
+    extra: list[str] = field(default_factory=list)  # more Hydra overrides, applied last
     plan: dict[str, Any] = field(default_factory=dict)  # the sizing of a --budget-hours run
     pool_images: int | None = None  # a fixed random subsample of the synthetic train images
     gpus: int = 1
@@ -67,7 +68,12 @@ def default_name(now: datetime | None = None) -> str:
 
 
 def train_overrides(job: JobConfig) -> list[str]:
-    """The Hydra overrides of the training run."""
+    """The Hydra overrides of the training run, then ``job.extra`` (``--set key=value``)."""
+    return [*base_overrides(job), *job.extra]
+
+
+def base_overrides(job: JobConfig) -> list[str]:
+    """The overrides the job chooses itself."""
     common = [
         f"train.output_dir={job.run_dir}",
         "train.resume=auto",
