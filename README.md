@@ -309,6 +309,15 @@ uv run pv-doctor --device cuda --batch 16 --size 640
 
 Prints what PyTorch sees (version, CUDA build, GPU, memory, bfloat16 support), warns about the usual install mistakes (a CPU-only torch, a GPU newer than the PyTorch build), then times real training steps in float32 and with mixed precision on generated crowded images and reports seconds per step, images per second and peak memory. Run it first on any new machine; `docs/cuda-setup.md` has the NVIDIA setup (Windows, Linux, rented GPUs).
 
+### Training on several GPUs
+
+```bash
+uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli data=loco_sordi \
+  train.batch_size=32 data.num_workers=5 train.val_every=5 train.resume=auto
+```
+
+One process per GPU, gradients averaged each update; `train.batch_size` is per GPU and `train.nominal_batch` counts all GPUs. Rank 0 writes the logs and checkpoints and validates. Details, a Mac workaround for `--standalone` and what is and isn't tested are in `docs/cuda-setup.md`.
+
 ### `pv-eval`: score a checkpoint
 
 Scores a checkpoint on LOCO the standard COCO way, so you can tell whether a run learned anything that generalises. It rebuilds the model from the config saved in the checkpoint.
