@@ -15,5 +15,6 @@ amp: false  # mixed precision (forward pass only; loss and optimiser stay float3
 amp_dtype: auto  # bfloat16 | float16 | auto (cuda: bfloat16 if the GPU supports it, else float16)
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1
+init_from: null  # a checkpoint whose weights start this run (pretraining -> fine-tuning): weights only, class heads of another shape stay fresh
 resume: null  # null starts fresh; a checkpoint path resumes it; "auto" resumes <output_dir>/last.pt if present
 val_every: 0  # score the validation split every N epochs (and after the last); 0 never. Needs data=loco

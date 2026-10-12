@@ -168,3 +168,7 @@ def main() -> None:
     print(
         "\nA 150-epoch run of 5,640 images an epoch is about 850,000 image-passes: divide by img/s."
     )
+
+
+if __name__ == "__main__":
+    main()
