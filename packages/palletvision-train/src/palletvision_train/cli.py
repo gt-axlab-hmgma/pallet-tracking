@@ -89,7 +89,10 @@ def sordi_split(cfg: DictConfig, classes: list[str], split: str) -> list[ImageRe
 
 def build_sordi(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
     """The synthetic training pool (original pixels); ``data.sordi.limit`` keeps the first N."""
-    pool: Dataset[Sample] = CocoDetection(sordi_split(cfg, classes, "train"))
+    records = sordi_split(cfg, classes, "train")
+    if cfg.data.sordi.get("subsample") is not None:  # a fixed random draw from every scene
+        records = subsample(records, int(cfg.data.sordi.subsample))
+    pool: Dataset[Sample] = CocoDetection(records)
     limit = cfg.data.sordi.get("limit")
     if limit is not None:
         pool = Subset(pool, range(min(int(limit), len(pool))))  # type: ignore[arg-type]

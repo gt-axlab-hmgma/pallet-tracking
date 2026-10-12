@@ -15,7 +15,7 @@ from palletvision_model.config import SIZES
 from palletvision_model.loss import DetectionLoss
 from palletvision_model.yolo26 import YOLO26
 from palletvision_train.augment import AugmentedDataset
-from palletvision_train.cli import CONFIG_DIR, REPO, build_dataset, build_sampler
+from palletvision_train.cli import CONFIG_DIR, REPO, build_dataset, build_sampler, build_sordi
 from palletvision_train.coco import CocoDetection
 from palletvision_train.data import LetterboxedDataset
 from palletvision_train.sordi import (
@@ -271,6 +271,29 @@ def test_by_default_real_and_synthetic_images_are_one_pool() -> None:
     assert isinstance(sampler, UniformSampler)
     assert (sampler.n, len(sampler)) == (90, 30)  # 40 real and 50 synthetic images, drawn alike
     assert isinstance(dataset, AugmentedDataset) and dataset.partners is None  # whole pool
+
+
+@pytest.mark.skipif(not HAS_DATA, reason="LOCO and SORDI data not present")
+def test_the_pool_can_be_a_fixed_random_subsample_across_scenes() -> None:
+    def pool(*extra: str) -> CocoDetection:
+        with initialize_config_dir(CONFIG_DIR, version_base=None):
+            cfg = compose(
+                "config",
+                overrides=["data=loco_sordi", "data.sordi.subsample=40", *extra,
+                           "data.sordi.roots=[data/sordid-02,data/sordid-08]"],
+            )  # fmt: skip
+        built = build_sordi(cfg, ["pallet"])
+        assert isinstance(built, CocoDetection)
+        return built
+
+    first, again = pool(), pool()
+    assert len(first) == 40 and [r.path for r in first.records] == [r.path for r in again.records]
+    scenes = {
+        r.path.parts[-3] if "DR-" in r.path.parts[-3] else r.path.parts[-3] for r in first.records
+    }
+    assert len({p for r in first.records for p in r.path.parts if p.startswith("sordid-")}) == 2, (
+        scenes
+    )
 
 
 def test_other_datasets_keep_plain_shuffling() -> None:

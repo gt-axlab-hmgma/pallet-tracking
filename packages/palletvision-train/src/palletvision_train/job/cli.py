@@ -65,6 +65,16 @@ def share(text: str) -> float | None:
     return value
 
 
+def scenes(text: str) -> list[str]:
+    """``--scenes 01,02``: scene numbers, as two digits."""
+    numbers = [part.strip().zfill(2) for part in text.split(",") if part.strip()]
+    if not numbers or not all(n.isdigit() for n in numbers):
+        raise argparse.ArgumentTypeError(
+            f"scenes must be numbers like 02 or 01,02,04, got {text!r}"
+        )
+    return numbers
+
+
 def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="pv-job", description=(__doc__ or "").split("\n\n")[0])
     sub = p.add_subparsers(dest="command", required=True)
@@ -84,6 +94,14 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     run.add_argument(
         "--full-eval", action="store_true", help="score every synthetic val/test image"
     )
+    run.add_argument(
+        "--scenes", type=scenes, default=None,
+        help="comma-separated SORDI scene numbers to use (default: all in the config), e.g. 02",
+    )  # fmt: skip
+    run.add_argument(
+        "--pool-images", type=int, default=None,
+        help="keep a fixed random subsample of this many synthetic train images (all scenes)",
+    )  # fmt: skip
     run.add_argument("--init-from", type=Path, help="start from a pretrained checkpoint's weights")
     b = sub.add_parser("bundle", help="pack an existing run folder")
     b.add_argument("run_dir", type=Path)
@@ -108,6 +126,14 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     synthetic = bool(getattr(args, "synthetic", False))
     roots: list[str] = list(load_data_config()["roots"])
+    if getattr(args, "scenes", None):
+        listed = {fetch.scene_number(r): r for r in roots}
+        unknown = [n for n in args.scenes if n not in listed]
+        if unknown:
+            raise SystemExit(
+                f"scenes {unknown} are not in configs/data/loco_sordi.yaml: {sorted(listed)}"
+            )
+        roots = [listed[n] for n in args.scenes]
     loco_missing, missing = False, list[str]()
     if args.command in ("check", "fetch") or not synthetic:
         loco_missing, missing = check_data(roots, DATA_DIR)
@@ -130,7 +156,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         share=getattr(args, "share", None), epoch_images=getattr(args, "epoch_images", 5640),
         gpus=gpu_count(args.gpus), retries=args.retries,
         full_eval=getattr(args, "full_eval", False), resume=args.resume, roots=roots,
-        init_from=getattr(args, "init_from", None),
+        init_from=getattr(args, "init_from", None), pool_images=getattr(args, "pool_images", None),
     )  # fmt: skip
     refuse_overwrite(job)
 

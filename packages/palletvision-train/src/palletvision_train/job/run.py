@@ -45,6 +45,7 @@ class JobConfig:
     workers: int = 4
     share: float | None = None  # synthetic share of each epoch; None: real and synthetic alike
     epoch_images: int = 5640  # images per epoch when share is None
+    pool_images: int | None = None  # a fixed random subsample of the synthetic train images
     gpus: int = 1
     retries: int = 10
     full_eval: bool = False
@@ -86,6 +87,8 @@ def train_overrides(job: JobConfig) -> list[str]:
     ]  # fmt: skip
     if job.init_from:
         base.append(f"train.init_from={job.init_from}")
+    if job.pool_images is not None:
+        base.append(f"data.sordi.subsample={job.pool_images}")
     if job.smoke:
         return [
             *base, "data.limit=32", "data.sordi.limit=64", "data.val_limit=16",

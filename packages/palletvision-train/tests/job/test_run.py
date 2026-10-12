@@ -144,3 +144,8 @@ def test_out_of_memory_after_a_checkpoint_does_not_change_the_batch(tmp_path: Pa
 def test_a_numeric_share_keeps_the_fixed_mix_of_the_earlier_experiments(tmp_path: Path) -> None:
     o = train_overrides(job(tmp_path, share=0.5))
     assert "data.sordi.share=0.5" in o and "data.sordi.share=null" not in o
+
+
+def test_a_pool_subsample_is_passed_to_the_trainer_only_when_asked(tmp_path: Path) -> None:
+    assert "data.sordi.subsample=12941" in train_overrides(job(tmp_path, pool_images=12941))
+    assert not any(x.startswith("data.sordi.subsample") for x in train_overrides(job(tmp_path)))

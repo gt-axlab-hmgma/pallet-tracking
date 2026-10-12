@@ -68,3 +68,15 @@ def test_share_is_uniform_by_default_or_a_number_below_one() -> None:
     for bad in ("1", "-0.1", "abc"):
         with pytest.raises(SystemExit):
             parse(["run", "--share", bad])
+
+
+def test_scenes_are_numbers_and_unknown_ones_are_refused(tmp_path: Path) -> None:
+    from palletvision_train.job.cli import main, parse
+
+    assert parse(["run", "--scenes", "2, 01,4"]).scenes == ["02", "01", "04"]
+    assert parse(["run"]).scenes is None and parse(["run", "--pool-images", "50"]).pool_images == 50
+    for bad in ("", "x", "02,,x"):
+        with pytest.raises(SystemExit):
+            parse(["run", "--scenes", bad])
+    with pytest.raises(SystemExit, match="not in configs"):
+        main(["run", "--scenes", "99", "--synthetic", "--runs-dir", str(tmp_path)])
