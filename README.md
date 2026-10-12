@@ -286,6 +286,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.muon_weight`, `train.sgd_weight` | `0.45`, `0.55` | How MuSGD mixes the two updates on the convolution weights (the YOLO26n values). |
 | `train.nominal_batch` | `128` | Gradients of `round(128 / batch_size)` batches are averaged before each update, so small batches act like one of 128 (the report's batch; a real batch of 128 needs about 80 GB of memory, and memory grows about 0.6 GB per image); weight decay is scaled to match. `null` turns it off. |
 | `train.warmup_epochs`, `train.lr_final`, `train.lr_schedule` | `1`, `0.01`, `linear` | The rate climbs from 0 over the first epoch (at least 100 iterations), then falls along a straight line (or `cosine`) to 1% of `lr` at the last epoch. |
+| `train.init_from` | `null` | A checkpoint whose weights start this run (pretraining then fine-tuning). Weights only: unlike `resume` it does not restore the optimiser or the epoch. Tensors whose shape differs (the class heads, when the number of classes differs) keep their fresh initialisation. |
 | `train.resume` | `null` | `null` starts fresh, a path resumes from that checkpoint, `auto` resumes from `<output_dir>/last.pt` if it exists and starts fresh if not. Needs the same `train.epochs`. |
 
 #### Stopping and resuming
@@ -317,6 +318,16 @@ uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli data=l
 ```
 
 One process per GPU, gradients averaged each update; `train.batch_size` is per GPU and `train.nominal_batch` counts all GPUs. Rank 0 writes the logs and checkpoints and validates. Details, a Mac workaround for `--standalone` and what is and isn't tested are in `docs/cuda-setup.md`.
+
+### `pv-job`: the whole overnight run on another machine
+
+```bash
+bash scripts/pallet-job.sh run --smoke   # a few minutes: prove the machine (Mac: double-click scripts/pallet-smoke.command)
+bash scripts/pallet-job.sh               # the full job (Mac: pallet-job.command, Windows: pallet-job.bat)
+uv run pv-job check                      # what data or credentials are missing?
+```
+
+Checks the machine and data, downloads the missing public data (LOCO, SORDI scenes), trains the overnight recipe with restarts, scores `best.pt` on the LOCO and SORDI val and test splits, plots, and writes `runs/results-<name>/` (and a zip): weights, curves, scores, logs, environment, settings, and a manifest with the git commit and the image counts per split. The bundle is built from a fixed file list, so no image or video can leave the machine. The Mac path is tested end to end; the Windows scripts, the Slurm template, Kaggle downloads and several GPUs are not yet run on real hardware. Full instructions for whoever sits at the other machine: `docs/remote-training.md`. Starting from pretrained weights (`run --init-from`) and the licence findings on Objects365 and COCO: `docs/pretraining.md`.
 
 ### `pv-eval`: score a checkpoint
 

@@ -15,6 +15,7 @@ from palletvision_train.coco import CocoDetection, ImageRecord, loco_reader
 from palletvision_train.data import LetterboxedDataset, Sample
 from palletvision_train.distributed import current, init_distributed, shutdown
 from palletvision_train.evaluate import evaluate
+from palletvision_train.pretrained import load_pretrained
 from palletvision_train.sordi import MixedPartners, MixedSampler, sordi_records, subsample
 from palletvision_train.synthetic import SyntheticBoxes
 from palletvision_train.trainer import TrainResult, train
@@ -154,13 +155,16 @@ def build_extra_metrics(
     return lambda model: {"sordi_val_map50_95": score(model)}
 
 
-def scorer(cfg: DictConfig, reader: CocoDetection) -> Callable[[YOLO26], float]:
+def scorer(
+    cfg: DictConfig, reader: CocoDetection, categories: int = 1
+) -> Callable[[YOLO26], float]:
     device = resolve_device(cfg.device)
 
     def metric(model: YOLO26) -> float:
         result = evaluate(
             model, reader, size=cfg.model.input_size, device=device,
             batch_size=cfg.train.batch_size, num_workers=cfg.data.get("num_workers", 0),
+            categories=categories,
         )  # fmt: skip
         return result.map50_95
 
@@ -171,6 +175,9 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
     torch.manual_seed(cfg.seed)
     classes = yaml.safe_load((REPO / "contracts" / "classes.yaml").read_text())["stage1"]
     model = build_model(cfg, len(classes))
+    if cfg.train.get("init_from"):
+        copied, skipped = load_pretrained(model, REPO / cfg.train.init_from)
+        print(f"started from {cfg.train.init_from}: {copied} tensors copied, {len(skipped)} fresh")
     dataset = build_dataset(cfg, classes)
     config = OmegaConf.to_container(cfg, resolve=True)
     assert isinstance(config, dict)

@@ -99,3 +99,7 @@ def main() -> None:
     if not run.steps:
         raise SystemExit(f"no steps logged in {args.run}")
     print(plot_run(run, args.out or folder / "curves.png", args.window))
+
+
+if __name__ == "__main__":
+    main()
