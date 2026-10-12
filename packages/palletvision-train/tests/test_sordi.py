@@ -213,7 +213,12 @@ def test_the_loco_sordi_config_trains_pallets_and_stillages_as_one_class() -> No
         cfg = compose("config", overrides=["data=loco_sordi"])
     assert dict(cfg.data.class_map) == dict(cfg.data.sordi.class_map) == CLASS_MAP
     assert cfg.data.sordi.share == 0.3
-    assert list(cfg.data.annotations) == ["train", "val"]  # validation stays LOCO's real split
+    assert list(cfg.data.annotations) == [
+        "train",
+        "val",
+        "test",
+    ]  # real splits are whole LOCO sites
+    assert list(cfg.data.sordi.fractions) == [0.70, 0.15, 0.15]
 
 
 class CrashingLoss(DetectionLoss):
