@@ -30,8 +30,8 @@ class Batch(NamedTuple):
     gt_boxes: torch.Tensor  # [B, M, 4] float32, xyxy in letterboxed pixels (0 where padded)
     mask_gt: torch.Tensor  # [B, M, 1] bool, True for a real object and False for padding
 
-    def to(self, device: torch.device | str) -> "Batch":
-        return Batch(*(t.to(device) for t in self))
+    def to(self, device: torch.device | str, non_blocking: bool = False) -> "Batch":
+        return Batch(*(t.to(device, non_blocking=non_blocking) for t in self))
 
 
 class LetterboxedDataset(Dataset[Sample]):

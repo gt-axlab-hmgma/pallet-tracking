@@ -11,7 +11,8 @@ warmup_epochs: 1  # the learning rate climbs from 0 over these epochs, at least 
 warmup_bias_lr: 0.1  # sgd and musgd: biases start here and fall to the scheduled rate (0.1, our choice; the report does not give it)
 lr_final: 0.01  # the rate at the last epoch, as a fraction of lr
 lr_schedule: linear  # linear or cosine; the report does not say, linear is the usual choice
-amp: false  # fp16 autocast on cuda and mps only; keep off until it is validated (R4, #38)
+amp: false  # mixed precision (forward pass only; loss and optimiser stay float32). Off until validated
+amp_dtype: auto  # bfloat16 | float16 | auto (cuda: bfloat16 if the GPU supports it, else float16)
 max_steps: null  # set to a small int for smoke runs
 output_dir: runs/stage1
 resume: null  # null starts fresh; a checkpoint path resumes it; "auto" resumes <output_dir>/last.pt if present

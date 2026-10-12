@@ -15,6 +15,7 @@ from palletvision_model.yolo26 import YOLO26
 from palletvision_train.checkpoint import load_checkpoint, save_checkpoint
 from palletvision_train.data import Sample, collate
 from palletvision_train.optim import Schedule, build_optimizer
+from palletvision_train.precision import configure_backend, plan_amp
 from palletvision_train.runlog import RunLog
 
 MAX_GRAD_NORM = 10.0  # a single bad batch must not throw the weights far away
@@ -53,6 +54,7 @@ def train(
     lr_final: float = 1.0,
     lr_schedule: str = "cosine",
     amp: bool = False,
+    amp_dtype: str = "auto",
     max_steps: int | None = None,
     output_dir: Path | str,
     num_workers: int = 0,
@@ -68,8 +70,9 @@ def train(
 
     Each step runs both heads, lets the loss assign targets and score them, and updates the
     weights. The one-to-many weight ``alpha`` is set once per epoch from ``progressive_alpha``.
-    The loss itself always runs in float32; only the forward pass uses half precision (cuda and
-    mps) when ``amp`` is on.
+    The loss itself always runs in float32; only the forward pass uses reduced precision when
+    ``amp`` is on (``amp_dtype``: ``bfloat16`` or ``float16``, see ``plan_amp``; ``auto`` picks
+    bfloat16 on a CUDA card that supports it).
 
     Files written to ``output_dir``:
     - ``last.pt``: a checkpoint after every epoch (atomic, so a crash never corrupts it),
@@ -116,8 +119,9 @@ def train(
         lr=lr, epochs=epochs, batches_per_epoch=len(loader), warmup_epochs=warmup_epochs,
         warmup_bias_lr=warmup_bias_lr, momentum=momentum, lr_final=lr_final, kind=lr_schedule,
     )  # fmt: skip
-    use_amp = amp and dev.type in {"cuda", "mps"}
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp and dev.type == "cuda")
+    plan = plan_amp(dev.type, amp, amp_dtype)
+    configure_backend(dev)
+    scaler = torch.amp.GradScaler("cuda", enabled=plan.scaler)
 
     out = Path(output_dir)
     last, best = out / "last.pt", out / "best.pt"
@@ -152,8 +156,8 @@ def train(
             if max_steps is not None and steps >= max_steps:
                 stopped = True
                 break
-            batch = batch.to(dev)
-            with torch.autocast(device_type=dev.type, dtype=torch.float16, enabled=use_amp):
+            batch = batch.to(dev, non_blocking=dev.type == "cuda")
+            with torch.autocast(device_type=dev.type, dtype=plan.dtype, enabled=plan.autocast):
                 preds = model.raw(batch.images)
             image_hw = (batch.images.shape[-2], batch.images.shape[-1])
             total, parts = loss_fn(
