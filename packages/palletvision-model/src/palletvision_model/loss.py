@@ -9,10 +9,12 @@ The two branches are then blended with a weight that moves from the one-to-many 
 one-to-one branch as training goes on (Progressive Loss).
 """
 
+from dataclasses import fields
+
 import torch
 from torch import nn
 
-from palletvision_model.assigner import TaskAlignedAssigner
+from palletvision_model.assigner import Assignment, TaskAlignedAssigner
 from palletvision_model.decode import decode_boxes, make_anchors
 from palletvision_model.iou import bbox_iou
 
@@ -40,8 +42,10 @@ class DetectionLoss(nn.Module):
         l1_gain: float = 6.0,
         one2many: TaskAlignedAssigner | None = None,
         one2one: TaskAlignedAssigner | None = None,
+        assign_chunk: int = 2,
     ) -> None:
         super().__init__()
+        self.assign_chunk = assign_chunk
         self.strides = strides
         self.box_gain, self.cls_gain, self.l1_gain = box_gain, cls_gain, l1_gain
         self.assigners = {
@@ -81,6 +85,44 @@ class DetectionLoss(nn.Module):
             parts.update({f"{key}_{name}": value.detach() for key, value in losses.items()})
         return total, parts
 
+    def _assign(
+        self,
+        assigner: TaskAlignedAssigner,
+        scores: torch.Tensor,
+        boxes: torch.Tensor,
+        points: torch.Tensor,
+        gt_labels: torch.Tensor,
+        gt_boxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+    ) -> Assignment:
+        """Run the assigner a few images at a time.
+
+        Images are independent, so the result is exactly the same as one call on the whole batch.
+        What changes is memory: the assigner builds tensors of ``images x objects x cells``, and a
+        batch is padded to its most crowded image. In groups, only the crowded image's group pays
+        for that padding, so one image with hundreds of boxes (a mosaic of crowded scenes) no
+        longer inflates the whole batch.
+        """
+        parts = []
+        slots = torch.arange(1, mask_gt.shape[1] + 1, device=mask_gt.device)
+        for lo in range(0, scores.shape[0], self.assign_chunk):
+            rows = slice(lo, lo + self.assign_chunk)
+            real = mask_gt[rows].squeeze(-1) * slots
+            objects = int(real.amax()) if real.numel() else 0  # up to the last real one
+            parts.append(
+                assigner(
+                    scores[rows],
+                    boxes[rows],
+                    points,
+                    gt_labels[rows, :objects],
+                    gt_boxes[rows, :objects],
+                    mask_gt[rows, :objects],
+                )  # fmt: skip
+            )
+        return Assignment(
+            **{f.name: torch.cat([getattr(p, f.name) for p in parts]) for f in fields(Assignment)}
+        )
+
     def _branch(
         self,
         distances: torch.Tensor,
@@ -97,8 +139,14 @@ class DetectionLoss(nn.Module):
         boxes = decode_boxes(distances.float(), points, strides)  # [B, A, 4], keeps gradients
 
         # who is responsible for what: decided from detached copies, never trained through
-        target = assigner(
-            logits.detach().sigmoid(), boxes.detach(), points, gt_labels, gt_boxes, mask_gt
+        target = self._assign(
+            assigner,
+            logits.detach().sigmoid(),
+            boxes.detach(),
+            points,
+            gt_labels,
+            gt_boxes,
+            mask_gt,
         )
 
         # Everything is divided by the total target score, not by the number of objects or cells:

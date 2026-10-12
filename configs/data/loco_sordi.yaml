@@ -1,0 +1,21 @@
+# LOCO plus SORDI synthetic scenes. Validation is still the real LOCO validation split only.
+defaults:
+  - loco
+  - _self_
+name: loco_sordi
+sordi:
+  # scene folders (see data/README.md). A scene is either one folder with images/ and labels/json/
+  # or a folder of DR-1, DR-2... levels laid out that way, and all of its levels are used.
+  roots:
+    - data/sordid-01
+    - data/sordid-02
+    - data/sordid-04
+    - data/sordid-05
+    - data/sordid-06
+  # SORDI class names -> trained classes; the rest (dolly, forklift, boxes, ...) are dropped.
+  # Same rule as LOCO: a stillage is trained as a pallet.
+  class_map:
+    pallet: pallet
+    stillage: pallet
+  share: 0.3  # synthetic fraction of every epoch; the epoch is all real images plus this share
+  limit: null  # keep only the first N synthetic images (smoke runs)

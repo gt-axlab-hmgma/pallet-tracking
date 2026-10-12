@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 from palletvision_model.device import resolve_device
 from palletvision_model.loss import DetectionLoss, progressive_alpha
@@ -61,6 +61,8 @@ def train(
     metric_fn: Callable[[YOLO26], float] | None = None,
     metric_every: int = 1,
     config: dict[str, Any] | None = None,
+    sampler: Sampler[int] | None = None,
+    on_epoch_start: Callable[[int], None] | None = None,
 ) -> TrainResult:
     """Train ``model`` on letterboxed ``(image, labels)`` samples.
 
@@ -88,6 +90,12 @@ def train(
     over ``nominal_batch``. The learning rate warms up for ``warmup_epochs`` and then decays to
     ``lr * lr_final`` (see ``Schedule``); the defaults keep it constant.
 
+    ``sampler`` chooses which images each epoch uses (default: every image once, shuffled); an
+    epoch is as long as the sampler says, e.g. ``MixedSampler``.
+
+    ``on_epoch_start(epoch)`` is called before each epoch's batches (a resumed run starts at the
+    epoch it resumes from); training uses it to switch mosaic off for the last epochs.
+
     A run cut short by
     ``max_steps`` is a smoke test: its last checkpoint is for inspection, and resuming it
     replays the unfinished epoch from its start.
@@ -100,8 +108,9 @@ def train(
         weight_decay *= batch_size * accumulate / nominal_batch
     optimizer = build_optimizer(model, optimizer_name, lr, weight_decay, momentum, muon, sgd)
     loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
-        num_workers=num_workers, persistent_workers=num_workers > 0, pin_memory=dev.type == "cuda",
+        dataset, batch_size=batch_size, shuffle=sampler is None, sampler=sampler,
+        collate_fn=collate, num_workers=num_workers, persistent_workers=num_workers > 0,
+        pin_memory=dev.type == "cuda",
     )  # fmt: skip
     schedule = Schedule(
         lr=lr, epochs=epochs, batches_per_epoch=len(loader), warmup_epochs=warmup_epochs,
@@ -136,6 +145,8 @@ def train(
     stopped = False
     for epoch in range(done_epochs, epochs):
         alpha = progressive_alpha(epoch, epochs)
+        if on_epoch_start is not None:
+            on_epoch_start(epoch)
         began, epoch_losses = time.time(), []
         for index, batch in enumerate(loader):
             if max_steps is not None and steps >= max_steps:

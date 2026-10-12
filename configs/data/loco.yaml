@@ -22,3 +22,15 @@ class_map:
 num_workers: 4
 limit: null  # keep only the first N training images (smoke runs, overfit gate)
 val_limit: null  # score only the first N validation images (smoke runs)
+# Training augmentation: the YOLO26 report's values for the n model (Table S3). Real images only;
+# validation is never augmented. `enabled: false` trains on plain letterboxed images.
+augment:
+  enabled: true
+  mosaic: 1.0  # probability of building a sample from 4 images
+  scale: 0.5  # random zoom between 0.5x and 1.5x
+  translate: 0.1  # random shift, as a fraction of the image
+  fliplr: 0.5
+  hsv_h: 0.02
+  hsv_s: 0.7
+  hsv_v: 0.4
+  close_mosaic: 8  # no mosaic in the last 8 epochs
