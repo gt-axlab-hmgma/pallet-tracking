@@ -29,4 +29,5 @@ sordi:
   # epoch is all the real images plus enough synthetic ones to make that share, as in experiment 002.
   share: null
   epoch_images: 5640  # images per epoch when share is null; null makes an epoch the whole pool
+  subsample: null  # keep a fixed random N of the synthetic train images, drawn from every scene
   limit: null  # keep only the first N synthetic images (smoke runs)
