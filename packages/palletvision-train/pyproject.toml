@@ -24,6 +24,7 @@ pv-export = "palletvision_train.export:main"
 pv-overfit = "palletvision_train.overfit_cli:main"
 pv-eval = "palletvision_train.eval_cli:main"
 pv-plot = "palletvision_train.plot:main"
+pv-doctor = "palletvision_train.doctor:main"
 
 [build-system]
 requires = ["hatchling"]
