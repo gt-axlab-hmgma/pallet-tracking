@@ -32,7 +32,7 @@ For a lab PC, a gaming laptop, a rented GPU or a cluster. The person at the mach
    | Windows | double-click `scripts\pallet-job.bat` |
    | Linux | `bash scripts/pallet-job.sh` |
 
-   It downloads whatever data is missing, runs the overnight recipe (LOCO + all SORDI scenes at a 50% synthetic share, 150 epochs of 5,640 images, the paper's optimiser settings), restarts from the last checkpoint if it crashes, and finishes by scoring the best model on the LOCO and SORDI validation and test splits.
+   It downloads whatever data is missing, runs the overnight recipe (LOCO + all SORDI scenes as one pool, 150 epochs of 5,640 randomly drawn images, the paper's optimiser settings), restarts from the last checkpoint if it crashes, and finishes by scoring the best model on the LOCO and SORDI validation and test splits.
 3. **Send back** the folder it prints at the end: `runs/results-<name>/` (or the `.zip` beside it).
 
 Useful options (add them after the script name; `bash scripts/pallet-job.sh run --epochs 50`):
@@ -40,7 +40,8 @@ Useful options (add them after the script name; `bash scripts/pallet-job.sh run 
 | Option | Meaning |
 | --- | --- |
 | `--batch-size N` | images per step, per GPU (default 16). Lower it if the GPU is small; the trainer accumulates to the nominal batch of 128 so the update is the same. A crash from running out of memory before the first checkpoint halves it automatically. |
-| `--epochs N`, `--share F` | length of the run and the synthetic share of every epoch. |
+| `--epochs N`, `--epoch-images N` | length of the run and the images drawn per epoch (default 5,640). |
+| `--share uniform\|F` | `uniform` (default): real and synthetic images are one pool. A number such as `0.5` keeps every real image each epoch plus enough synthetic ones to make that share. |
 | `--gpus N` or `--gpus all` | several CUDA GPUs in one run (torchrun). **Not yet run on real GPUs**: smoke it first. |
 | `--workers N` | data-loading processes (default: half the cores, 2 to 8). |
 | `--full-eval` | at the end score *every* SORDI val/test image (about 18 minutes each on a Mac) instead of a fixed 5,000-image draw. LOCO is always scored in full. |
