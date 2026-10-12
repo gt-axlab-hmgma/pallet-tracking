@@ -262,10 +262,11 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 
 | Override | Default | Meaning |
 | --- | --- | --- |
-| `data` | `loco` | Dataset: `loco` (needs `data/loco`) or `synthetic` (generated boxes, no download). |
+| `data` | `loco` | Dataset: `loco` (needs `data/loco`), `loco_sordi` (LOCO plus the SORDI synthetic scenes in `data/sordid-*`, see below) or `synthetic` (generated boxes, no download). |
 | `data.size` | `640` | Synthetic image size in pixels. |
 | `data.num_samples` | `64` | Number of synthetic images. |
-| `data.limit` | `null` | Keep only the first N training images (smoke runs, overfit checks). |
+| `data.limit` | `null` | Keep only the first N training images (smoke runs, overfit checks). With `loco_sordi` this limits the real images; `data.sordi.limit` limits the synthetic pool. |
+| `data.sordi.share` | `0.3` | `loco_sordi` only: the synthetic fraction of every epoch. An epoch is every real image once plus a fresh random draw of synthetic images (2,820 real + 1,209 synthetic at 0.3), so real images stay the majority whatever the pool size. |
 | `data.num_workers` | `4` (loco) | Loader worker processes. |
 | `model.input_size` | `640` | Model input size; images are letterboxed to it. Keep equal to `data.size` for synthetic data. |
 | `device` | `auto` | `auto`, `cpu`, `cuda` or `mps`. |
@@ -275,7 +276,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
 | `train.output_dir` | `runs/stage1` | Where `last.pt`, `best.pt` and `metrics.jsonl` are written. |
-| `train.val_every` | `0` | Score the LOCO validation split with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. `0` never scores. Needs `data=loco`. |
+| `train.val_every` | `0` | Score the LOCO validation split with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. `0` never scores. Needs `data=loco` or `data=loco_sordi`; validation is always the real LOCO split, never synthetic. |
 | `data.val_limit` | `null` | Score only the first N validation images (smoke runs). |
 | `train.optimizer` | `musgd` | `musgd` (YOLO26's: SGD plus a Muon update on the convolution weights), `sgd`, or `adamw`. Weight decay is applied to the convolution weights only. |
 | `train.lr` | `0.01` | Peak learning rate (use `0.001` for `adamw`). |
@@ -288,6 +289,14 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 #### Stopping and resuming
 
 A checkpoint holds the weights, the optimiser and the state of every random number generator, so a resumed run follows exactly the loss curve an uninterrupted one would. If a run dies or you stop it, start it again with the same command plus `train.resume=auto`; it continues from the last finished epoch (the unfinished one is redone from its start) and trims the log so each step appears once. Checkpoints are written to a temporary file and renamed, so a crash while saving never damages the previous one. `train.max_steps` is for quick smoke tests; a run cut short by it leaves a checkpoint for inspection, and resuming it replays the unfinished epoch.
+
+#### Training with SORDI synthetic data
+
+```bash
+uv run pv-train data=loco_sordi train.val_every=5 train.epochs=30 train.output_dir=runs/loco_sordi
+```
+
+[SORDI](https://sordi.ai) scenes are synthetic warehouse renders with pallet and stillage boxes. Put each scene in `data/sordid-NN/` (with `images/` and `labels/json/`) and list it under `data.sordi.roots` in `configs/data/loco_sordi.yaml`. Pallets and stillages train as the one class `pallet`, as with LOCO; every other SORDI class is dropped. Validation stays on the real LOCO split, so the score still means real footage.
 
 ### `pv-eval`: score a checkpoint
 
