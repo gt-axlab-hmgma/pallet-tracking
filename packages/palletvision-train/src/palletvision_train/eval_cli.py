@@ -77,3 +77,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(asdict(r), indent=2))
+
+
+if __name__ == "__main__":
+    main()
