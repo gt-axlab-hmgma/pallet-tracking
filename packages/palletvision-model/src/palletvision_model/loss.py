@@ -22,8 +22,10 @@ from palletvision_model.iou import bbox_iou
 Predictions = dict[str, tuple[torch.Tensor, torch.Tensor]]
 
 
-def progressive_alpha(epoch: int, epochs: int, init: float = 0.8, final: float = 0.1) -> float:
+def progressive_alpha(epoch: float, epochs: int, init: float = 0.8, final: float = 0.1) -> float:
     """Weight of the one-to-many branch at ``epoch``: falls linearly from ``init`` to ``final``.
+
+    ``epoch`` may be fractional (``step / steps per epoch``) to change the weight every step.
 
     ``alpha(t) = max(1 - t / max(E - 1, 1), 0) * (init - final) + final`` (YOLO26 report, Eq. 3).
     """
