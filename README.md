@@ -274,7 +274,8 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.epochs` | `150` | Passes over the data (the report's pretraining recipe). About 1.5 min each on the M5 Pro. |
 | `train.batch_size` | `16` | Images per step. |
 | `train.lr` | `0.001` | Learning rate. |
-| `train.amp` | `false` | fp16 autocast, only used on cuda/mps. Keep off until validated (#38). |
+| `train.amp` | `false` | Mixed precision: the forward and backward pass run in 16 bits, the weights, loss and optimiser stay float32. Works on cuda, mps and (bfloat16) cpu. Check held-out mAP against a float32 run before relying on it (#38). |
+| `train.amp_dtype` | `auto` | `bfloat16`, `float16` or `auto` (cuda: bfloat16 if the GPU supports it, else float16 with loss scaling; mps: float16). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
 | `train.output_dir` | `runs/stage1` | Where `last.pt`, `best.pt` and `metrics.jsonl` are written. |
 | `train.val_every` | `0` | Score the LOCO validation split with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. `0` never scores. Needs `data=loco` or `data=loco_sordi`; validation is always the real LOCO split, never synthetic. |
@@ -298,6 +299,15 @@ uv run pv-train data=loco_sordi train.val_every=5 train.epochs=30 train.output_d
 ```
 
 [SORDI](https://sordi.ai) scenes are synthetic warehouse renders with pallet and stillage boxes. Put each scene in `data/sordid-NN/` (with `images/` and `labels/json/`) and list it under `data.sordi.roots` in `configs/data/loco_sordi.yaml`. Pallets and stillages train as the one class `pallet`, as with LOCO; every other SORDI class is dropped. Validation stays on the real LOCO split, so the score still means real footage.
+
+### `pv-doctor`: check a machine and its speed
+
+```bash
+uv run pv-doctor --batch 8                 # environment, warnings, then timed training steps
+uv run pv-doctor --device cuda --batch 16 --size 640
+```
+
+Prints what PyTorch sees (version, CUDA build, GPU, memory, bfloat16 support), warns about the usual install mistakes (a CPU-only torch, a GPU newer than the PyTorch build), then times real training steps in float32 and with mixed precision on generated crowded images and reports seconds per step, images per second and peak memory. Run it first on any new machine; `docs/cuda-setup.md` has the NVIDIA setup (Windows, Linux, rented GPUs).
 
 ### `pv-eval`: score a checkpoint
 
