@@ -231,6 +231,53 @@ class MixedSampler(Sampler[int]):
         yield from order
 
 
+class UniformSampler(Sampler[int]):
+    """Each epoch: a fresh random draw of ``per_epoch`` images, real and synthetic alike.
+
+    No image is treated differently because of where it came from: every image of the pool has the
+    same chance of being drawn, so the real/synthetic mix is just the mix of the pool (about 1% real
+    for LOCO plus all of SORDI). ``per_epoch=None`` makes an epoch the whole pool.
+
+    Randomness works as in ``MixedSampler``: torch's global generator by default (so a resumed run
+    repeats the epochs), or with a ``seed`` an epoch seeded by ``seed + epoch`` (call ``set_epoch``)
+    that every process draws identically before keeping its own slice.
+    """
+
+    def __init__(
+        self,
+        n: int,
+        per_epoch: int | None = None,
+        *,
+        seed: int | None = None,
+        rank: int = 0,
+        world_size: int = 1,
+    ) -> None:
+        if world_size > 1 and seed is None:
+            raise ValueError("several processes need a seed, so that all of them draw one epoch")
+        if not 0 <= rank < world_size:
+            raise ValueError(f"rank {rank} is not in a group of {world_size}")
+        self.n, self.per_epoch = n, min(per_epoch or n, n)
+        self.seed, self.rank, self.world_size, self.epoch = seed, rank, world_size, 0
+
+    def __len__(self) -> int:
+        """The images this process runs in an epoch."""
+        return -(-self.per_epoch // self.world_size)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __iter__(self) -> Iterator[int]:
+        generator = None
+        if self.seed is not None:
+            generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        order: list[int] = torch.randperm(self.n, generator=generator)[: self.per_epoch].tolist()
+        if self.world_size > 1:
+            total = len(self) * self.world_size
+            order = (order * -(-total // len(order)))[:total]  # repeat from the start to fill up
+            order = order[self.rank : total : self.world_size]
+        yield from order
+
+
 class MixedPartners:
     """Picks the images a mosaic mixes in, with the epoch's real/synthetic mixture.
 

@@ -24,5 +24,9 @@ sordi:
     stillage: pallet
   fractions: [0.70, 0.15, 0.15]  # train / val / test
   val_images: 2000  # synthetic validation images scored every val_every epochs (fixed random draw)
-  share: 0.3  # synthetic fraction of every epoch; the epoch is all real images plus this share
+  # Real and synthetic images are treated alike. share null: one pool, and every epoch is a uniform
+  # random draw of epoch_images from it (about 1% real with all the scenes). A number (0.5): every
+  # epoch is all the real images plus enough synthetic ones to make that share, as in experiment 002.
+  share: null
+  epoch_images: 5640  # images per epoch when share is null; null makes an epoch the whole pool
   limit: null  # keep only the first N synthetic images (smoke runs)
