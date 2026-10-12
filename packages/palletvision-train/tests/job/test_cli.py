@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from palletvision_train.cli import REPO
 from palletvision_train.job.cli import main
 
 
@@ -99,3 +100,47 @@ def test_a_sized_run_cannot_be_a_smoke_or_synthetic_run(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="real run"):
         main(["run", "--synthetic", "--budget-hours", "5", "--runs-dir", str(tmp_path)])
+
+
+def test_set_can_be_repeated() -> None:
+    from palletvision_train.job.cli import parse
+
+    a = parse(["run", "--set", "train.lr=0.005", "--set", "data.augment.close_mosaic=2"])
+    assert (
+        a.extra == ["train.lr=0.005", "data.augment.close_mosaic=2"] and parse(["run"]).extra == []
+    )
+
+
+def test_a_partial_epoch_is_a_fraction_of_the_train_set() -> None:
+    from palletvision_train.job.cli import parse
+
+    assert parse(["run", "--epoch-fraction", "0.5"]).epoch_fraction == 0.5
+    assert parse(["run"]).epoch_fraction is None
+
+
+@pytest.mark.skipif(not (REPO / "data/loco/annotations").exists(), reason="LOCO data not present")
+def test_a_sized_run_makes_the_train_set_and_the_epoch_from_the_options(tmp_path: Path) -> None:
+    from argparse import Namespace
+
+    from palletvision_train.job.cli import size_run
+    from palletvision_train.job.run import JobConfig
+
+    def sized(**options: object) -> JobConfig:
+        job = JobConfig(name="n", run_dir=tmp_path, epochs=8)
+        given = {"budget_hours": None, "train_images": 4000, "epoch_fraction": None, **options}
+        size_run(job, Namespace(**given))
+        return job
+
+    full = sized()
+    assert full.pool_images == 4000 - 2820 and full.epoch_images is None
+    assert full.plan["views"] == 4000 * 8 and full.share is None
+    half = sized(epoch_fraction=0.5)
+    assert half.pool_images == 1180 and half.epoch_images == 2000
+    assert half.plan["epoch_images"] == 2000 and half.plan["views"] == 2000 * 8
+    with pytest.raises(SystemExit, match="exceed LOCO"):
+        size_run(
+            JobConfig(name="n", run_dir=tmp_path),
+            Namespace(budget_hours=None, train_images=100, epoch_fraction=None),
+        )
+    with pytest.raises(SystemExit, match="epoch-fraction"):
+        sized(epoch_fraction=1.5)

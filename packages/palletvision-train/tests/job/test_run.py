@@ -173,3 +173,9 @@ def test_a_full_epoch_and_mixed_precision_reach_the_trainer(tmp_path: Path) -> N
     o = train_overrides(job(tmp_path, epoch_images=None, amp=True))
     assert "data.sordi.epoch_images=null" in o and "train.amp=true" in o
     assert "train.amp=true" not in train_overrides(job(tmp_path))
+
+
+def test_extra_overrides_come_last_so_they_win(tmp_path: Path) -> None:
+    o = train_overrides(job(tmp_path, extra=["data.augment.close_mosaic=2", "train.lr=0.005"]))
+    assert o[-2:] == ["data.augment.close_mosaic=2", "train.lr=0.005"]
+    assert not any(x.startswith("data.augment") for x in train_overrides(job(tmp_path)))
