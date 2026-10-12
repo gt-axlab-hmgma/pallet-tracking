@@ -26,21 +26,27 @@ NORMS = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.GroupNorm, nn.LayerN
 GROUP_ORDER = ("bias", "norm", "weight")  # the bias group is first on purpose
 
 
-def split_parameters(model: nn.Module) -> dict[str, list[nn.Parameter]]:
+def split_parameters(
+    model: nn.Module, pretrained: set[str] | None = None
+) -> dict[str, list[nn.Parameter]]:
     """Every parameter of ``model`` in exactly one group: ``bias``, ``norm`` or ``weight``.
 
     ``norm`` holds the scales of the normalisation layers; ``weight`` holds the convolution (and
-    linear) weights, the only ones that get weight decay.
+    linear) weights, the only ones that get weight decay. With ``pretrained`` (the names of the
+    parameters that start from pretrained weights) each of the three is split in two, and the
+    pretrained half is named ``bias_pre``, ``norm_pre`` or ``weight_pre``; empty groups are left
+    out.
     """
     groups: dict[str, list[nn.Parameter]] = {name: [] for name in GROUP_ORDER}
-    for module in model.modules():
+    if pretrained is not None:
+        groups |= {f"{name}_pre": [] for name in GROUP_ORDER}
+    for module_name, module in model.named_modules():
         for name, parameter in module.named_parameters(recurse=False):
-            if name == "bias":
-                groups["bias"].append(parameter)
-            elif isinstance(module, NORMS):
-                groups["norm"].append(parameter)
-            else:
-                groups["weight"].append(parameter)
+            kind = "bias" if name == "bias" else "norm" if isinstance(module, NORMS) else "weight"
+            full = f"{module_name}.{name}" if module_name else name
+            groups[kind + ("_pre" if pretrained and full in pretrained else "")].append(parameter)
+    if pretrained is not None:
+        groups = {name: params for name, params in groups.items() if params}
     return groups
 
 
@@ -137,24 +143,33 @@ def build_optimizer(
     momentum: float = 0.937,
     muon: float = 0.45,
     sgd: float = 0.55,
+    pretrained: set[str] | None = None,
+    pretrained_lr_mult: float = 1.0,
 ) -> torch.optim.Optimizer:
     """MuSGD, SGD (Nesterov momentum) or AdamW over the three groups; only ``weight`` is decayed.
 
     ``momentum`` is the (Nesterov) momentum of SGD and MuSGD, or AdamW's first beta. In MuSGD
     only the ``weight`` group gets the Muon update, mixed in with weights ``muon`` and ``sgd``.
+
+    ``pretrained`` names the parameters that start from pretrained weights; unless
+    ``pretrained_lr_mult`` is 1 they form their own groups whose learning rate is that multiple
+    of the others' (``lr_scale``), so a fresh class head can learn fast while the pretrained
+    features move gently.
     """
-    groups = split_parameters(model)
+    split = pretrained is not None and pretrained_lr_mult != 1.0
+    groups = split_parameters(model, pretrained if split else None)
     specs = [
         {
             "name": group,
-            "params": groups[group],
-            "weight_decay": weight_decay if group == "weight" else 0.0,
+            "params": params,
+            "weight_decay": weight_decay if group.startswith("weight") else 0.0,
+            **({"lr_scale": pretrained_lr_mult} if group.endswith("_pre") else {}),
         }
-        for group in GROUP_ORDER
+        for group, params in groups.items()
     ]
     if name == "musgd":
         for spec in specs:
-            spec["use_muon"] = spec["name"] == "weight"
+            spec["use_muon"] = str(spec["name"]).startswith("weight")
         return MuSGD(specs, lr=lr, momentum=momentum, nesterov=momentum > 0, muon=muon, sgd=sgd)
     if name == "sgd":
         return torch.optim.SGD(specs, lr=lr, momentum=momentum, nesterov=momentum > 0)
@@ -208,7 +223,7 @@ class Schedule:
         warm = self.warmup_iterations
         if iteration >= warm:
             return scheduled
-        start = self.warmup_bias_lr if group == "bias" else 0.0
+        start = self.warmup_bias_lr if group.startswith("bias") else 0.0
         return start + (scheduled - start) * iteration / warm
 
     def momentum_at(self, iteration: int) -> float:
@@ -221,7 +236,9 @@ class Schedule:
         """Set every group's learning rate and momentum for ``iteration``."""
         momentum = self.momentum_at(iteration)
         for group in optimizer.param_groups:
-            group["lr"] = self.learning_rate(group.get("name", "weight"), iteration)
+            group["lr"] = self.learning_rate(group.get("name", "weight"), iteration) * group.get(
+                "lr_scale", 1.0
+            )
             if "momentum" in group:
                 group["momentum"] = momentum
             elif "betas" in group:

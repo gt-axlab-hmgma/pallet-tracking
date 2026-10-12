@@ -23,7 +23,8 @@ def test_matching_tensors_are_copied_and_the_class_head_stays_fresh(tmp_path: Pa
     before = {k: v.clone() for k, v in target.state_dict().items()}
     copied, skipped = load_pretrained(target, tmp_path / "pre.pt")
     after = target.state_dict()
-    assert copied + len(skipped) == len(after) and skipped  # some tensors differ in shape
+    assert len(copied) + len(skipped) == len(after) and skipped  # some tensors differ in shape
+    assert set(copied).isdisjoint(skipped)
     for name, tensor in pretrained.state_dict().items():
         if name in skipped:
             assert torch.equal(after[name], before[name])  # left as the new model initialised it
@@ -38,4 +39,4 @@ def test_a_plain_state_dict_loads_too(tmp_path: Path) -> None:
     torch.save(model.state_dict(), tmp_path / "w.pt")
     other = small(1)
     copied, skipped = load_pretrained(other, tmp_path / "w.pt")
-    assert skipped == [] and copied == len(model.state_dict())
+    assert skipped == [] and copied == sorted(model.state_dict())
