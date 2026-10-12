@@ -44,7 +44,9 @@ class JobConfig:
     batch_size: int = 16
     workers: int = 4
     share: float | None = None  # synthetic share of each epoch; None: real and synthetic alike
-    epoch_images: int = 5640  # images per epoch when share is None
+    epoch_images: int | None = 5640  # images per epoch when share is None; None: the whole pool
+    amp: bool = False  # mixed precision (bfloat16 on cards that have it)
+    plan: dict[str, Any] = field(default_factory=dict)  # the sizing of a --budget-hours run
     pool_images: int | None = None  # a fixed random subsample of the synthetic train images
     gpus: int = 1
     retries: int = 10
@@ -82,9 +84,12 @@ def train_overrides(job: JobConfig) -> list[str]:
     roots = "[" + ",".join(job.roots) + "]"
     base = [
         "data=loco_sordi", f"data.sordi.share={'null' if job.share is None else job.share}",
-        f"data.sordi.epoch_images={job.epoch_images}", f"data.sordi.roots={roots}",
+        f"data.sordi.epoch_images={'null' if job.epoch_images is None else job.epoch_images}",
+        f"data.sordi.roots={roots}",
         f"data.num_workers={job.workers}", *common,
     ]  # fmt: skip
+    if job.amp:
+        base.append("train.amp=true")
     if job.init_from:
         base.append(f"train.init_from={job.init_from}")
     if job.pool_images is not None:
@@ -265,6 +270,45 @@ def data_manifest(roots: Sequence[str], fractions: Sequence[float]) -> dict[str,
     return {"sordi": scenes, "fractions": list(fractions)}
 
 
+def plan_budget(
+    hours: float, epochs: int, images_per_second: float, margin: float, n_real: int
+) -> dict[str, Any]:
+    """Size a run to a time budget: every epoch is the whole train set, so the train set is as big
+    as ``hours`` of training allows for ``epochs`` epochs.
+
+    ``images_per_second`` is the measured speed of the training step alone; ``margin`` (below 1)
+    discounts it for data loading, augmentation, real box counts and the scoring between epochs.
+    Real and synthetic images count alike: ``train_images`` is the total, of which ``n_real`` are
+    LOCO's and the rest a random subsample of SORDI's.
+    """
+    if not 0 < margin <= 1:
+        raise ValueError(f"margin must be in (0, 1], got {margin}")
+    usable = hours * 3600 * images_per_second * margin
+    train_images = int(usable // epochs)
+    pool = train_images - n_real
+    if pool < 1000:
+        raise SystemExit(
+            f"{hours} h at {images_per_second:.0f} img/s allows only {train_images} train images "
+            f"for {epochs} epochs (LOCO alone is {n_real}): raise --budget-hours or lower --epochs"
+        )
+    return {
+        "budget_hours": hours, "epochs": epochs,
+        "measured_images_per_second": round(images_per_second, 1),
+        "margin": margin, "train_images": train_images, "real_images": n_real, "pool_images": pool,
+        "views": train_images * epochs,
+    }  # fmt: skip
+
+
+def measure_speed(batch_size: int, amp: bool) -> float:
+    """Images per second of the training step on this machine, at the batch size and precision of
+    the run (generated crowded images, so it does not include data loading)."""
+    from palletvision_model.device import resolve_device
+    from palletvision_train.doctor import time_training
+
+    timing = time_training(resolve_device("auto"), 640, batch_size, 6, amp)
+    return timing.images_per_second
+
+
 def run_doctor(job: JobConfig) -> None:
     code = stream(
         [sys.executable, "-m", "palletvision_train.doctor", "--batch", "8", "--steps", "4"],
@@ -311,6 +355,7 @@ def write_manifest(job: JobConfig, started: float, attempts: int, argv: Sequence
         "git": git_info(REPO),
         "data": data_for_manifest(job, fractions),
         "init_from": str(job.init_from) if job.init_from else None,
+        "plan": job.plan,
         "scores": summarise_evals(job.run_dir),
     }
     (job.run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))

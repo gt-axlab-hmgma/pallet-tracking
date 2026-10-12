@@ -80,3 +80,22 @@ def test_scenes_are_numbers_and_unknown_ones_are_refused(tmp_path: Path) -> None
             parse(["run", "--scenes", bad])
     with pytest.raises(SystemExit, match="not in configs"):
         main(["run", "--scenes", "99", "--synthetic", "--runs-dir", str(tmp_path)])
+
+
+def test_the_big_run_options_parse() -> None:
+    from palletvision_train.job.cli import parse
+
+    a = parse(
+        ["run", "--budget-hours", "15", "--amp", "--epoch-images", "all", "--scenes", "02,06"]
+    )
+    assert (a.budget_hours, a.amp, a.epoch_images, a.scenes) == (15.0, True, None, ["02", "06"])
+    assert parse(["run"]).speed_margin == 0.6 and parse(["fetch", "--scenes", "2"]).scenes == ["02"]
+    with pytest.raises(SystemExit):
+        parse(["run", "--epoch-images", "0"])
+
+
+def test_a_sized_run_cannot_be_a_smoke_or_synthetic_run(tmp_path: Path) -> None:
+    from palletvision_train.job.cli import main
+
+    with pytest.raises(SystemExit, match="real run"):
+        main(["run", "--synthetic", "--budget-hours", "5", "--runs-dir", str(tmp_path)])

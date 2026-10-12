@@ -34,6 +34,8 @@ from palletvision_train.job.run import (
     finish,
     keep_awake,
     load_data_config,
+    measure_speed,
+    plan_budget,
     refuse_overwrite,
     report_missing,
     run_doctor,
@@ -65,6 +67,16 @@ def share(text: str) -> float | None:
     return value
 
 
+def epoch_images(text: str) -> int | None:
+    """``--epoch-images``: a number, or ``all`` for a full pass over the whole pool."""
+    if text == "all":
+        return None
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"epoch images must be positive or 'all', got {text}")
+    return value
+
+
 def scenes(text: str) -> list[str]:
     """``--scenes 01,02``: scene numbers, as two digits."""
     numbers = [part.strip().zfill(2) for part in text.split(",") if part.strip()]
@@ -79,7 +91,11 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="pv-job", description=(__doc__ or "").split("\n\n")[0])
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("check", "fetch", "run"):
-        sub.add_parser(name)
+        s = sub.add_parser(name)
+        s.add_argument(
+            "--scenes", type=scenes, default=None,
+            help="comma-separated SORDI scene numbers to use (default: all in the config), e.g. 02",
+        )  # fmt: skip
     run = sub.choices["run"]
     add_run_options(run, 150)
     run.add_argument("--synthetic", action="store_true", help="generated data only: no download")
@@ -89,15 +105,26 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
         "0.5: every real image each epoch plus enough synthetic ones to make that share",
     )  # fmt: skip
     run.add_argument(
-        "--epoch-images", type=int, default=5640, help="images per epoch when --share is uniform"
-    )
+        "--epoch-images", type=epoch_images, default=5640,
+        help="images per epoch when --share is uniform: a number, or 'all' for the whole pool",
+    )  # fmt: skip
+    run.add_argument("--amp", action="store_true", help="mixed precision (faster on a GPU)")
+    run.add_argument(
+        "--budget-hours", type=float, default=None,
+        help="size the run to this many hours: every epoch is the whole train set, and the train "
+        "set is as big as the measured speed allows for --epochs epochs",
+    )  # fmt: skip
+    run.add_argument(
+        "--train-images", type=int, default=None,
+        help="total train images, real and synthetic alike (every epoch is all of them)",
+    )  # fmt: skip
+    run.add_argument(
+        "--speed-margin", type=float, default=0.6,
+        help="fraction of the measured step speed assumed for the whole run (default 0.6)",
+    )  # fmt: skip
     run.add_argument(
         "--full-eval", action="store_true", help="score every synthetic val/test image"
     )
-    run.add_argument(
-        "--scenes", type=scenes, default=None,
-        help="comma-separated SORDI scene numbers to use (default: all in the config), e.g. 02",
-    )  # fmt: skip
     run.add_argument(
         "--pool-images", type=int, default=None,
         help="keep a fixed random subsample of this many synthetic train images (all scenes)",
@@ -106,6 +133,40 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     b = sub.add_parser("bundle", help="pack an existing run folder")
     b.add_argument("run_dir", type=Path)
     return p.parse_args(argv)
+
+
+def size_run(job: JobConfig, args: argparse.Namespace) -> None:
+    """``--budget-hours`` or ``--train-images``: every epoch is the whole train set, whose size is
+    set here (LOCO's train images plus a random subsample of SORDI's, real and synthetic alike)."""
+    budget, total = getattr(args, "budget_hours", None), getattr(args, "train_images", None)
+    if budget is None and total is None:
+        return
+    if job.synthetic or job.smoke:
+        raise SystemExit(
+            "--budget-hours and --train-images are for real runs, not --smoke or --synthetic"
+        )
+    from palletvision_train.coco import loco_reader
+
+    n_real = len(loco_reader("train"))
+    if budget is not None:
+        speed = measure_speed(job.batch_size, job.amp)
+        job.plan = plan_budget(budget, job.epochs, speed, args.speed_margin, n_real)
+    else:
+        assert total is not None
+        job.plan = {"train_images": total, "real_images": n_real, "pool_images": total - n_real,
+                    "epochs": job.epochs, "views": total * job.epochs}  # fmt: skip
+        if job.plan["pool_images"] < 1:
+            raise SystemExit(f"--train-images must exceed LOCO's {n_real} train images")
+    job.pool_images, job.epoch_images, job.share = job.plan["pool_images"], None, None
+    plan = job.plan
+    print(
+        f"plan: {plan['epochs']} epochs, each the whole train set of {plan['train_images']:,} "
+        f"images "
+        f"({plan['real_images']:,} LOCO + {plan['pool_images']:,} SORDI, drawn alike) = "
+        f"{plan['views']:,} image views"
+        + (f"; {plan['measured_images_per_second']} img/s measured x {plan['margin']} margin "
+           f"for {plan['budget_hours']} h" if "budget_hours" in plan else "")
+    )  # fmt: skip
 
 
 def gpu_count(setting: str) -> int:
@@ -154,6 +215,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         name=name, run_dir=args.runs_dir / f"job-{name}", smoke=args.smoke, synthetic=synthetic,
         epochs=args.epochs, batch_size=args.batch_size, workers=args.workers,
         share=getattr(args, "share", None), epoch_images=getattr(args, "epoch_images", 5640),
+        amp=getattr(args, "amp", False),
         gpus=gpu_count(args.gpus), retries=args.retries,
         full_eval=getattr(args, "full_eval", False), resume=args.resume, roots=roots,
         init_from=getattr(args, "init_from", None), pool_images=getattr(args, "pool_images", None),
@@ -168,6 +230,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise SystemExit("cannot start:\n" + "\n".join(problems))
         fetch_missing(loco_missing, missing, DATA_DIR)
     job.run_dir.mkdir(parents=True, exist_ok=True)
+    size_run(job, args)
 
     device = resolve_device("auto")
     print(f"pv-job {name}: device {device}, {job.gpus} GPU(s), folder {job.run_dir}")

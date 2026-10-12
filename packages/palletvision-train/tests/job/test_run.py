@@ -149,3 +149,27 @@ def test_a_numeric_share_keeps_the_fixed_mix_of_the_earlier_experiments(tmp_path
 def test_a_pool_subsample_is_passed_to_the_trainer_only_when_asked(tmp_path: Path) -> None:
     assert "data.sordi.subsample=12941" in train_overrides(job(tmp_path, pool_images=12941))
     assert not any(x.startswith("data.sordi.subsample") for x in train_overrides(job(tmp_path)))
+
+
+def test_a_time_budget_sizes_the_train_set_so_every_epoch_is_all_of_it() -> None:
+    from palletvision_train.job.run import plan_budget
+
+    plan = plan_budget(hours=15, epochs=150, images_per_second=100, margin=0.6, n_real=2820)
+    # 15 h x 3600 s x 100 img/s x 0.6 = 3.24 M views, over 150 epochs = 21,600 images per epoch
+    assert plan["train_images"] == 21_600 and plan["pool_images"] == 21_600 - 2820
+    assert plan["views"] == 21_600 * 150 and plan["real_images"] == 2820
+
+
+def test_a_budget_too_small_for_the_real_images_is_refused() -> None:
+    from palletvision_train.job.run import plan_budget
+
+    with pytest.raises(SystemExit, match="raise --budget-hours"):
+        plan_budget(hours=1, epochs=150, images_per_second=20, margin=0.6, n_real=2820)
+    with pytest.raises(ValueError, match="margin"):
+        plan_budget(hours=15, epochs=150, images_per_second=100, margin=1.5, n_real=2820)
+
+
+def test_a_full_epoch_and_mixed_precision_reach_the_trainer(tmp_path: Path) -> None:
+    o = train_overrides(job(tmp_path, epoch_images=None, amp=True))
+    assert "data.sordi.epoch_images=null" in o and "train.amp=true" in o
+    assert "train.amp=true" not in train_overrides(job(tmp_path))
