@@ -52,7 +52,29 @@ For a gaming laptop (RTX 50-series), a rented GPU or a cluster node. **Status: w
 
 `uv sync` already installs a CUDA build of torch from PyPI. Run `uv run pv-doctor` first and set `data.num_workers` to about the number of CPU cores per GPU (the augmentation needs roughly 4 cores for every 350 images a second). Use `tmux` or `nohup`, with `train.resume=auto`. Download the public datasets onto the machine directly.
 
+## Several GPUs in one run
+
+One process per GPU, started by `torchrun`; every process trains on its own slice of each epoch and the gradients are averaged, so all copies stay identical. Nothing else changes: the same command and configuration, just launched differently.
+
+```bash
+# 4 GPUs: 32 images per GPU is the paper's global batch of 128, with no accumulation
+uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli \
+  data=loco_sordi data.sordi.share=0.5 data.num_workers=5 \
+  train.batch_size=32 train.epochs=150 train.val_every=5 train.output_dir=runs/ddp train.resume=auto
+```
+
+- **`train.batch_size` and `data.num_workers` are per GPU.** The update uses `batch_size x GPUs x accumulation` images, and `train.nominal_batch` (128) counts all of them: with 4 GPUs at 32 images, nothing is accumulated; with 2 GPUs at 16, 4 batches are. Weight decay scales with the real number of images.
+- **Rank 0 does the bookkeeping.** It alone writes `metrics.jsonl`, `last.pt` and `best.pt`, prints, and runs validation (the other GPUs wait; validation is about a minute every 5 epochs). The logged loss is the mean over the GPUs.
+- **Gradients are averaged once per update**, not once per accumulated batch.
+- **Resume** with the same command and the same number of GPUs. The weights, optimiser and data order are restored; augmentation randomness is not bit-identical to an uninterrupted run.
+- **Batch-norm statistics are per GPU** (32 images each in the example), as in most detector training; there is no SyncBatchNorm option yet.
+- **Not for Apple GPUs**: several processes cannot share MPS. Several processes on the CPU work (`device=cpu`, gloo) and are what the tests use.
+- **On a Mac, `--standalone` can hang** in torchrun's start-up (it fails to resolve an IPv6 address). Use `--nnodes=1 --nproc_per_node=2 --master-addr=127.0.0.1 --master-port=29500 --local-addr=127.0.0.1` instead.
+- **If it hangs on a cluster**, check that `--nproc_per_node` is not larger than the visible GPU count (the trainer says so), and that every process can read `data/`.
+
+**Evidence so far:** the multi-process code is tested with two real processes on the CPU: weights identical across ranks, one gradient average per update, only rank 0 writing, shards covering the epoch, resume. It has **not** run on several GPUs; run the same smoke test first (`pv-train data=synthetic ... train.max_steps=20` under `torchrun`) before a long job.
+
 ## Not done yet
 
-- **Several GPUs in one run.** Training uses one GPU. A distributed version (DDP, `torchrun`) is separate work; until then, several GPUs are best used for one experiment each.
 - **Accuracy with mixed precision** is not validated (see step 8).
+- **SyncBatchNorm** across GPUs.

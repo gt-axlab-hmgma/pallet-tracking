@@ -92,14 +92,35 @@ class MixedSampler(Sampler[int]):
     Indices ``0 .. n_real-1`` are the real images and ``n_real ..`` the synthetic ones (the
     order of a ``ConcatDataset([real, synthetic])``). The synthetic images are a fresh random
     draw without repeats every epoch, so a large pool is used up gradually while real images
-    stay the majority. Randomness comes from torch's global generator, which the checkpoints
-    save, so a resumed run draws the same epochs as an uninterrupted one.
+    stay the majority.
+
+    By default the randomness comes from torch's global generator, which the checkpoints save,
+    so a resumed run draws the same epochs as an uninterrupted one. With several processes
+    (``world_size`` > 1) every process must draw the *same* epoch and then keep its own slice,
+    so pass a ``seed``: the epoch is then drawn from a generator seeded by ``seed + epoch``
+    (call ``set_epoch`` each epoch), identical in every process and reproducible on resume.
+    Slices are made equal in length by repeating images from the start, as torch's
+    ``DistributedSampler`` does, so no process runs out of batches before the others.
     """
 
-    def __init__(self, n_real: int, n_synthetic: int, share: float = 0.3) -> None:
+    def __init__(
+        self,
+        n_real: int,
+        n_synthetic: int,
+        share: float = 0.3,
+        *,
+        seed: int | None = None,
+        rank: int = 0,
+        world_size: int = 1,
+    ) -> None:
         if not 0 <= share < 1:
             raise ValueError(f"share must be in [0, 1), got {share}")
+        if world_size > 1 and seed is None:
+            raise ValueError("several processes need a seed, so that all of them draw one epoch")
+        if not 0 <= rank < world_size:
+            raise ValueError(f"rank {rank} is not in a group of {world_size}")
         self.n_real, self.n_synthetic = n_real, n_synthetic
+        self.seed, self.rank, self.world_size, self.epoch = seed, rank, world_size, 0
         self.n_drawn = round(n_real * share / (1 - share))
         if self.n_drawn > n_synthetic:
             raise ValueError(
@@ -108,12 +129,26 @@ class MixedSampler(Sampler[int]):
             )
 
     def __len__(self) -> int:
-        return self.n_real + self.n_drawn
+        """The images this process runs in an epoch."""
+        return -(-(self.n_real + self.n_drawn) // self.world_size)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
 
     def __iter__(self) -> Iterator[int]:
-        synthetic = self.n_real + torch.randperm(self.n_synthetic)[: self.n_drawn]
-        order = torch.cat([torch.arange(self.n_real), synthetic])
-        yield from order[torch.randperm(len(order))].tolist()
+        generator = None
+        if self.seed is not None:
+            generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        synthetic = (
+            self.n_real + torch.randperm(self.n_synthetic, generator=generator)[: self.n_drawn]
+        )
+        shuffled = torch.cat([torch.arange(self.n_real), synthetic])
+        order: list[int] = shuffled[torch.randperm(len(shuffled), generator=generator)].tolist()
+        if self.world_size > 1:
+            total = len(self) * self.world_size
+            order = (order * -(-total // len(order)))[:total]  # repeat from the start to fill up
+            order = order[self.rank : total : self.world_size]
+        yield from order
 
 
 class MixedPartners:

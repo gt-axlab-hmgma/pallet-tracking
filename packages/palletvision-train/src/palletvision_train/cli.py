@@ -13,6 +13,7 @@ from palletvision_model.yolo26 import YOLO26
 from palletvision_train.augment import AugmentConfig, AugmentedDataset
 from palletvision_train.coco import CocoDetection, ImageRecord, loco_reader
 from palletvision_train.data import LetterboxedDataset, Sample
+from palletvision_train.distributed import current, init_distributed, shutdown
 from palletvision_train.evaluate import evaluate
 from palletvision_train.sordi import MixedPartners, MixedSampler, load_sordi_records, scene_folders
 from palletvision_train.synthetic import SyntheticBoxes
@@ -87,7 +88,11 @@ def build_sampler(cfg: DictConfig, dataset: Dataset[Sample]) -> Sampler[int] | N
     assert isinstance(dataset, (LetterboxedDataset, AugmentedDataset))
     assert isinstance(dataset.base, ConcatDataset)
     real, synthetic = dataset.base.datasets
-    return MixedSampler(len(real), len(synthetic), cfg.data.sordi.share)  # type: ignore[arg-type]
+    info = current()
+    return MixedSampler(
+        len(real), len(synthetic), cfg.data.sordi.share,  # type: ignore[arg-type]
+        seed=cfg.seed if info.distributed else None, rank=info.rank, world_size=info.world_size,
+    )  # fmt: skip
 
 
 def build_epoch_hook(cfg: DictConfig, dataset: Dataset[Sample]) -> Callable[[int], None] | None:
@@ -157,12 +162,26 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
         metric_fn=build_metric(cfg), metric_every=cfg.train.get("val_every") or 1,
         config={str(k): v for k, v in config.items()},
         sampler=build_sampler(cfg, dataset), on_epoch_start=build_epoch_hook(cfg, dataset),
+        seed=cfg.seed,
     )  # fmt: skip
 
 
 @hydra.main(config_path=CONFIG_DIR, config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    print(OmegaConf.to_yaml(cfg))
-    result = train_from_config(cfg)
-    last = result.losses[-1] if result.losses else float("nan")
-    print(f"trained {len(result.losses)} steps, last loss {last:.4f} -> {result.checkpoint}")
+    info, device = init_distributed(cfg.device)  # joins the group when started by torchrun
+    cfg.device = device
+    try:
+        if info.is_main:
+            print(OmegaConf.to_yaml(cfg))
+        result = train_from_config(cfg)
+        last = result.losses[-1] if result.losses else float("nan")
+        if info.is_main:
+            print(
+                f"trained {len(result.losses)} steps, last loss {last:.4f} -> {result.checkpoint}"
+            )
+    finally:
+        shutdown()
+
+
+if __name__ == "__main__":  # python -m palletvision_train.cli, and torchrun -m
+    main()
