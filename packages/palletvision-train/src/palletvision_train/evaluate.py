@@ -211,9 +211,13 @@ def evaluate(
     device: str | torch.device = "auto",
     batch_size: int = 16,
     num_workers: int = 0,
+    categories: int = 1,
 ) -> EvalResult:
-    """Score ``model`` on every image of ``reader`` (letterbox only, no augmentation)."""
+    """Score ``model`` on every image of ``reader`` (letterbox only, no augmentation).
+
+    ``categories`` is the number of classes; with more than one, the mAP is the mean over classes.
+    """
     results = detect(
         model, reader, size=size, device=device, batch_size=batch_size, num_workers=num_workers
     )
-    return score(results, coco_ground_truth(reader))
+    return score(results, coco_ground_truth(reader, categories))
