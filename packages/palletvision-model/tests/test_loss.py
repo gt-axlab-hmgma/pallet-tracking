@@ -166,3 +166,40 @@ def test_it_accepts_the_real_models_raw_output() -> None:
     (grad,) = torch.autograd.grad(total, [first], allow_unused=True)
     assert grad is not None and grad.abs().sum() > 0  # the loss reaches the first layer
     assert {"box_one2one", "cls_one2many", "l1_one2one", "total_one2many"} <= set(parts)
+
+
+def test_assigning_a_few_images_at_a_time_gives_the_same_loss() -> None:
+    torch.manual_seed(0)
+    batch, most = 7, 9
+    dist = torch.rand(batch, CELLS, 4) * 3 + 0.5
+    logit = torch.randn(batch, CELLS, 1)
+    preds: Predictions = {"one2many": (dist, logit), "one2one": (dist.clone(), logit.clone())}
+    counts = [0, 1, 9, 3, 5, 2, 9]  # images with very different numbers of objects
+    gt_boxes = torch.zeros(batch, most, 4)
+    mask = torch.zeros(batch, most, 1, dtype=torch.long)
+    for i, n in enumerate(counts):
+        xy = torch.rand(n, 2) * 30
+        gt_boxes[i, :n] = torch.cat([xy, xy + 8 + torch.rand(n, 2) * 20], dim=1)
+        mask[i, :n] = 1
+    gt_labels = torch.zeros(batch, most, 1, dtype=torch.long)
+    results = []
+    for chunk in (1, 3, 4, 100):
+        total, parts = DetectionLoss(assign_chunk=chunk)(
+            preds, IMAGE, gt_labels, gt_boxes, mask, 0.5
+        )
+        results.append((total, parts))
+    for total, parts in results[1:]:
+        assert total.item() == pytest.approx(results[0][0].item(), rel=1e-6)
+        for key, value in parts.items():
+            assert value.item() == pytest.approx(results[0][1][key].item(), rel=1e-6), key
+    assert results[0][0].item() > 0
+
+
+def test_a_chunk_of_images_with_no_objects_is_fine() -> None:
+    preds = same_in_both(None)
+    preds = {k: (d.repeat(4, 1, 1), lg.repeat(4, 1, 1)) for k, (d, lg) in preds.items()}
+    gt_labels = torch.zeros(4, 3, 1, dtype=torch.long)
+    gt_boxes = torch.zeros(4, 3, 4)
+    mask = torch.zeros(4, 3, 1, dtype=torch.long)
+    total, _ = DetectionLoss(assign_chunk=2)(preds, IMAGE, gt_labels, gt_boxes, mask, 0.5)
+    assert torch.isfinite(total)
