@@ -16,6 +16,28 @@ I am not a lawyer; this is not legal advice. Check with the PI or Georgia Tech's
 | **COCO** | Annotations are CC BY 4.0 (commercial use allowed with attribution). Images come from Flickr under mixed per-image licences that are recorded in the annotation files; the Consortium holds no image copyright. A [2021 arXiv study](https://arxiv.org/pdf/2111.02374) of public datasets, COCO included, found a high risk of licence problems for commercial software, even for pretrained models; no court ruling or official statement settles it. **A gray area, not cleared.** Filtering to the permissive per-image licences (for example CC BY) would reduce the risk without removing the uncertainty. |
 | **LOCO, SORDI** | LOCO is CC0 and SORDI is MIT: what we train on today. |
 
+## Fine-tuning recipe (single phase)
+
+Starting points to tune on LOCO val, not tested values. With a checkpoint pretrained on another dataset (its class head will restart fresh):
+
+```bash
+bash scripts/pallet-job.sh run --init-from <pretrained.pt> --scenes "01,02,04,05,06" \
+  --train-images 48000 --epochs 4 --amp --name finetune \
+  --set train.pretrained_lr_mult=0.2 --set train.warmup_bias_lr=0.01 \
+  --set train.alpha_schedule=step --set train.alpha_init=0.3 \
+  --set train.ema=true --set train.ema_decay=0.995 --set train.ema_tau=200 \
+  --set data.augment.close_mosaic=1
+```
+
+- **Data:** all 2,820 LOCO train images plus about 45,000 SORDI images, every epoch the whole set. At equal training, more distinct images beat repeats (the one-hour experiment: 34,000 distinct images scored about 4x 3,820 repeated nine times on synthetic data), so use many distinct images and few passes. About 190,000 image views.
+- **Learning rate:** `pretrained_lr_mult=0.2` trains the copied tensors at 0.002 against 0.01 for the new class branch: the protection of freeze-then-unfreeze ([LP-FT](https://arxiv.org/abs/2202.10054v1)) in one phase.
+- **Progressive loss:** `step` so a few epochs still anneal; start at 0.3 because a pretrained model has already passed the early phase.
+- **EMA** with a short horizon (`0.995`, about 200 updates), since a fine-tune has only about 1,500 updates.
+- **Mosaic** off for the last epoch only (the default 8 would switch it off for the whole run).
+- **The check that matters:** the same budget from scratch against this, scored on LOCO val and test. Pretraining can fail to help when augmentation is strong and labels plentiful ([Zoph et al.](https://arxiv.org/pdf/2006.06882)).
+
+LoRA is not used: it saves memory and storage for models with billions of parameters; ours has 2.4M and trains in a few GB, and its low-rank limit would restrict how far the model can adapt.
+
 ## How to decide whether pretraining helps
 
 From-scratch pallet training is the baseline (LOCO test, later HMGMA test). Pretrain on an allowed dataset, fine-tune with the same recipe, and compare **test** scores, not training loss. If the licence question stays open, the lowest-risk path is no third-party pretraining and more HMGMA frames.
