@@ -278,7 +278,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `train.amp_dtype` | `auto` | `bfloat16`, `float16` or `auto` (cuda: bfloat16 if the GPU supports it, else float16 with loss scaling; mps: float16). |
 | `train.max_steps` | `null` | Stop after this many steps. Handy for quick smoke runs. |
 | `train.output_dir` | `runs/stage1` | Where `last.pt`, `best.pt` and `metrics.jsonl` are written. |
-| `train.val_every` | `0` | Score the LOCO validation split with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. `0` never scores. Needs `data=loco` or `data=loco_sordi`; validation is always the real LOCO split, never synthetic. |
+| `train.val_every` | `0` | Score the real LOCO validation split (sub-set 1) with mAP50-95 every N epochs and after the last; the best score writes `best.pt`. With `data=loco_sordi` the synthetic validation split (a fixed `data.sordi.val_images` draw) is scored too and logged as `sordi_val_map50_95`, but it does not pick `best.pt`. `0` never scores. Needs `data=loco` or `data=loco_sordi`. |
 | `data.val_limit` | `null` | Score only the first N validation images (smoke runs). |
 | `train.optimizer` | `musgd` | `musgd` (YOLO26's: SGD plus a Muon update on the convolution weights), `sgd`, or `adamw`. Weight decay is applied to the convolution weights only. |
 | `train.lr` | `0.01` | Peak learning rate (use `0.001` for `adamw`). |
@@ -298,7 +298,7 @@ A checkpoint holds the weights, the optimiser and the state of every random numb
 uv run pv-train data=loco_sordi train.val_every=5 train.epochs=30 train.output_dir=runs/loco_sordi
 ```
 
-[SORDI](https://sordi.ai) scenes are synthetic warehouse renders with pallet and stillage boxes. Put each scene in `data/sordid-NN/` (with `images/` and `labels/json/`) and list it under `data.sordi.roots` in `configs/data/loco_sordi.yaml`. Pallets and stillages train as the one class `pallet`, as with LOCO; every other SORDI class is dropped. Validation stays on the real LOCO split, so the score still means real footage.
+[SORDI](https://sordi.ai) scenes are synthetic warehouse renders with pallet and stillage boxes. Put each scene in `data/sordid-NN/` (with `images/` and `labels/json/`) and list it under `data.sordi.roots` in `configs/data/loco_sordi.yaml`. Pallets and stillages train as the one class `pallet`, as with LOCO; every other SORDI class is dropped. **Splits.** LOCO is split by whole recording site (train sub-sets 2, 3, 5; validation sub-set 1; test sub-set 4), because its frames are video and neighbouring frames are near-identical. SORDI frames are independent views (a neighbouring frame differs from a given one about as much as a random one, and DR levels do not share camera poses), so every SORDI image is assigned to train, val or test, 70/15/15, by a hash of its scene, level and number (`sordi.split_of`). A hash rather than a shuffle so that adding a scene never moves an image that already has a split. Training uses the train parts only. Report real (LOCO) and synthetic (SORDI) scores separately: pooled, the number would be almost all SORDI.
 
 ### `pv-doctor`: check a machine and its speed
 
@@ -323,11 +323,13 @@ One process per GPU, gradients averaged each update; `train.batch_size` is per G
 Scores a checkpoint on LOCO the standard COCO way, so you can tell whether a run learned anything that generalises. It rebuilds the model from the config saved in the checkpoint.
 
 ```bash
-uv run pv-eval --checkpoint runs/stage1/best.pt                        # the validation split (sub-sets 1 and 4)
+uv run pv-eval --checkpoint runs/stage1/best.pt                        # the real validation split (LOCO sub-set 1)
 uv run pv-eval --checkpoint runs/stage1/last.pt --split train --limit 8 --out runs/eval.json
+uv run pv-eval --checkpoint runs/stage1/best.pt --split test                      # the held-out LOCO site, sub-set 4: run once, at the end
+uv run pv-eval --checkpoint runs/stage1/best.pt --split test --source sordi --limit 2000   # the synthetic test split
 ```
 
-It prints mAP50-95 (the headline number), mAP50, mAP75, AP for small, medium and large objects, average recall, and the confidence threshold that gives the best F1, which is the value to pass to `pv-infer --conf`. Details that matter for the numbers to mean something: images are letterboxed and nothing else, boxes are mapped back to the original image's pixels, the score threshold is 0.001 (mAP needs the weak tail, not a 0.25 cut-off), and up to 300 detections per image are kept (LOCO images can hold over 100 objects). The full validation split (2,277 images) takes about 45 seconds on the M5 Pro. The validation split is split by recording site, so it measures how the model does in places it has not seen; it is not a test set, so do not tune against it too long.
+It prints mAP50-95 (the headline number), mAP50, mAP75, AP for small, medium and large objects, average recall, and the confidence threshold that gives the best F1, which is the value to pass to `pv-infer --conf`. Details that matter for the numbers to mean something: images are letterboxed and nothing else, boxes are mapped back to the original image's pixels, the score threshold is 0.001 (mAP needs the weak tail, not a 0.25 cut-off), and up to 300 detections per image are kept (LOCO images can hold over 100 objects). The validation split (1,075 images) takes about 20 seconds on the M5 Pro. The LOCO splits are by recording site, so they measure how the model does in places it has not seen. Choose settings and `best.pt` on validation, and look at `--split test` only for the final number; a test score that has been tuned against is just another validation score.
 
 ### `pv-plot`: draw a run's curves
 
