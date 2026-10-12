@@ -55,6 +55,16 @@ def add_run_options(s: argparse.ArgumentParser, epochs: int) -> None:
     s.add_argument("--runs-dir", type=Path, default=REPO / "runs")
 
 
+def share(text: str) -> float | None:
+    """``--share``: ``uniform`` (no share) or a number between 0 and 1."""
+    if text == "uniform":
+        return None
+    value = float(text)
+    if not 0 <= value < 1:
+        raise argparse.ArgumentTypeError(f"share must be in [0, 1) or 'uniform', got {text}")
+    return value
+
+
 def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="pv-job", description=(__doc__ or "").split("\n\n")[0])
     sub = p.add_subparsers(dest="command", required=True)
@@ -63,7 +73,14 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     run = sub.choices["run"]
     add_run_options(run, 150)
     run.add_argument("--synthetic", action="store_true", help="generated data only: no download")
-    run.add_argument("--share", type=float, default=0.5, help="synthetic share of every epoch")
+    run.add_argument(
+        "--share", type=share, default=None,
+        help="'uniform' (default): real and synthetic images are one pool; or a number, such as "
+        "0.5: every real image each epoch plus enough synthetic ones to make that share",
+    )  # fmt: skip
+    run.add_argument(
+        "--epoch-images", type=int, default=5640, help="images per epoch when --share is uniform"
+    )
     run.add_argument(
         "--full-eval", action="store_true", help="score every synthetic val/test image"
     )
@@ -110,7 +127,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     job = JobConfig(
         name=name, run_dir=args.runs_dir / f"job-{name}", smoke=args.smoke, synthetic=synthetic,
         epochs=args.epochs, batch_size=args.batch_size, workers=args.workers,
-        share=getattr(args, "share", 0.5), gpus=gpu_count(args.gpus), retries=args.retries,
+        share=getattr(args, "share", None), epoch_images=getattr(args, "epoch_images", 5640),
+        gpus=gpu_count(args.gpus), retries=args.retries,
         full_eval=getattr(args, "full_eval", False), resume=args.resume, roots=roots,
         init_from=getattr(args, "init_from", None),
     )  # fmt: skip
