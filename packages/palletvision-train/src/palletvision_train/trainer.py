@@ -62,6 +62,7 @@ def train(
     metric_every: int = 1,
     config: dict[str, Any] | None = None,
     sampler: Sampler[int] | None = None,
+    on_epoch_start: Callable[[int], None] | None = None,
 ) -> TrainResult:
     """Train ``model`` on letterboxed ``(image, labels)`` samples.
 
@@ -91,6 +92,9 @@ def train(
 
     ``sampler`` chooses which images each epoch uses (default: every image once, shuffled); an
     epoch is as long as the sampler says, e.g. ``MixedSampler``.
+
+    ``on_epoch_start(epoch)`` is called before each epoch's batches (a resumed run starts at the
+    epoch it resumes from); training uses it to switch mosaic off for the last epochs.
 
     A run cut short by
     ``max_steps`` is a smoke test: its last checkpoint is for inspection, and resuming it
@@ -141,6 +145,8 @@ def train(
     stopped = False
     for epoch in range(done_epochs, epochs):
         alpha = progressive_alpha(epoch, epochs)
+        if on_epoch_start is not None:
+            on_epoch_start(epoch)
         began, epoch_losses = time.time(), []
         for index, batch in enumerate(loader):
             if max_steps is not None and steps >= max_steps:

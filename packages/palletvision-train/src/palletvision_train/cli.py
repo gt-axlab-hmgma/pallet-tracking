@@ -10,10 +10,11 @@ from torch.utils.data import ConcatDataset, Dataset, Sampler, Subset
 from palletvision_model.config import ModelConfig
 from palletvision_model.device import resolve_device
 from palletvision_model.yolo26 import YOLO26
+from palletvision_train.augment import AugmentConfig, AugmentedDataset
 from palletvision_train.coco import CocoDetection, ImageRecord, loco_reader
 from palletvision_train.data import LetterboxedDataset, Sample
 from palletvision_train.evaluate import evaluate
-from palletvision_train.sordi import MixedSampler, load_sordi_records, scene_folders
+from palletvision_train.sordi import MixedPartners, MixedSampler, load_sordi_records, scene_folders
 from palletvision_train.synthetic import SyntheticBoxes
 from palletvision_train.trainer import TrainResult, train
 
@@ -33,7 +34,12 @@ def build_model(cfg: DictConfig, num_classes: int) -> YOLO26:
 
 
 def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
-    """The letterboxed training set. ``data.limit`` keeps only the first N images (smoke runs)."""
+    """The training set, 640-square. ``data.limit`` keeps only the first N real images.
+
+    Without augmentation every image is letterboxed, as at inference. With it (``data.augment``,
+    on for LOCO) each access returns a freshly augmented version. ``data=loco_sordi`` puts the
+    real images first and the synthetic pool after them, one dataset for ``MixedSampler``.
+    """
     size = cfg.model.input_size
     if cfg.data.name == "synthetic":
         base: Dataset[Sample] = SyntheticBoxes(cfg.data.num_samples, cfg.data.size, cfg.seed)
@@ -43,17 +49,23 @@ def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
         base = CocoDetection.from_config({str(k): v for k, v in data.items()}, "train", classes)
     else:
         raise SystemExit(f"pv-train: dataset '{cfg.data.name}' has no loader yet")
-    dataset: Dataset[Sample] = LetterboxedDataset(base, size)
     limit = cfg.data.get("limit")
     if limit is not None:
-        dataset = Subset(dataset, range(min(int(limit), len(dataset))))  # type: ignore[arg-type]
+        base = Subset(base, range(min(int(limit), len(base))))  # type: ignore[arg-type]
+    partners = None
     if cfg.data.name == "loco_sordi":  # real images first, then the synthetic pool
-        dataset = ConcatDataset([dataset, build_sordi(cfg, classes)])
-    return dataset
+        pool = build_sordi(cfg, classes)
+        partners = MixedPartners(len(base), len(pool), cfg.data.sordi.share)  # type: ignore[arg-type]
+        base = ConcatDataset([base, pool])
+    augment = cfg.data.get("augment")
+    if augment is not None and augment.get("enabled", True):
+        config = AugmentConfig(**{k: v for k, v in augment.items() if k != "enabled"})
+        return AugmentedDataset(base, size, config, partners)
+    return LetterboxedDataset(base, size)
 
 
 def build_sordi(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
-    """The letterboxed synthetic pool: every scene folder in ``data.sordi.roots``."""
+    """The synthetic pool (original pixels): every scene folder in ``data.sordi.roots``."""
     sordi = cfg.data.sordi
     mapping = OmegaConf.to_container(sordi.class_map, resolve=True)
     assert isinstance(mapping, dict)
@@ -62,7 +74,7 @@ def build_sordi(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
     for root in sordi.roots:
         for folder in scene_folders(REPO / root):
             records += load_sordi_records(folder, class_map, classes)
-    pool: Dataset[Sample] = LetterboxedDataset(CocoDetection(records), cfg.model.input_size)
+    pool: Dataset[Sample] = CocoDetection(records)
     if sordi.get("limit") is not None:
         pool = Subset(pool, range(min(int(sordi.limit), len(pool))))  # type: ignore[arg-type]
     return pool
@@ -72,9 +84,22 @@ def build_sampler(cfg: DictConfig, dataset: Dataset[Sample]) -> Sampler[int] | N
     """The mixed real/synthetic epoch for ``data=loco_sordi``; every other dataset shuffles."""
     if cfg.data.name != "loco_sordi":
         return None
-    assert isinstance(dataset, ConcatDataset)
-    real, synthetic = dataset.datasets
+    assert isinstance(dataset, (LetterboxedDataset, AugmentedDataset))
+    assert isinstance(dataset.base, ConcatDataset)
+    real, synthetic = dataset.base.datasets
     return MixedSampler(len(real), len(synthetic), cfg.data.sordi.share)  # type: ignore[arg-type]
+
+
+def build_epoch_hook(cfg: DictConfig, dataset: Dataset[Sample]) -> Callable[[int], None] | None:
+    """Switch mosaic off for the last ``augment.close_mosaic`` epochs (report: the last 8)."""
+    if not isinstance(dataset, AugmentedDataset):
+        return None
+    last_mosaic_epoch = cfg.train.epochs - dataset.config.close_mosaic
+
+    def hook(epoch: int) -> None:
+        dataset.set_mosaic(epoch < last_mosaic_epoch)
+
+    return hook
 
 
 def resume_path(cfg: DictConfig) -> Path | None:
@@ -130,7 +155,7 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
         num_workers=cfg.data.get("num_workers", 0), resume=resume_path(cfg),
         metric_fn=build_metric(cfg), metric_every=cfg.train.get("val_every") or 1,
         config={str(k): v for k, v in config.items()},
-        sampler=build_sampler(cfg, dataset),
+        sampler=build_sampler(cfg, dataset), on_epoch_start=build_epoch_hook(cfg, dataset),
     )  # fmt: skip
 
 

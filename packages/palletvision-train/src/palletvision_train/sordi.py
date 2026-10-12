@@ -11,6 +11,7 @@ SORDI is far larger than LOCO and it is synthetic, so it must never swamp the re
 """
 
 import json
+import random
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
@@ -113,3 +114,20 @@ class MixedSampler(Sampler[int]):
         synthetic = self.n_real + torch.randperm(self.n_synthetic)[: self.n_drawn]
         order = torch.cat([torch.arange(self.n_real), synthetic])
         yield from order[torch.randperm(len(order))].tolist()
+
+
+class MixedPartners:
+    """Picks the images a mosaic mixes in, with the epoch's real/synthetic mixture.
+
+    Indices follow ``ConcatDataset([real, synthetic])``. Drawing partners uniformly from the
+    whole pool would make nearly every mosaic tile synthetic, so each partner is a real image
+    with probability ``1 - share`` and a synthetic one otherwise, like the epoch itself.
+    """
+
+    def __init__(self, n_real: int, n_synthetic: int, share: float = 0.3) -> None:
+        self.n_real, self.n_synthetic, self.share = n_real, n_synthetic, share
+
+    def __call__(self) -> int:
+        if self.n_synthetic and random.random() < self.share:
+            return self.n_real + random.randrange(self.n_synthetic)
+        return random.randrange(self.n_real)
