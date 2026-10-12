@@ -2,7 +2,8 @@ name: loco
 root: data/loco
 # COCO-format boxes. image ids differ between files, and `file_name` is only a basename,
 # so the loader must locate each image from `images[].path` minus its leading "/dataset/".
-# Official splits by recording site (use unchanged): sub1 and sub4 are val, the rest train.
+# Splits by recording site (whole sites, since frames within a site are video): sub2, sub3, sub5
+# train, sub1 val, sub4 test. LOCO's own files call sub1 and sub4 both "val"; sub4 is held out here.
 annotations:
   train:
     - data/loco/annotations/loco-sub2-v1-train.json
@@ -10,6 +11,7 @@ annotations:
     - data/loco/annotations/loco-sub5-v1-train.json
   val:
     - data/loco/annotations/loco-sub1-v1-val.json
+  test:
     - data/loco/annotations/loco-sub4-v1-val.json
 # LOCO categories: small_load_carrier, forklift, pallet, stillage, pallet_truck.
 # Stage 1 keeps pallets and stillages (cargo on a pallet-like base) as the single class

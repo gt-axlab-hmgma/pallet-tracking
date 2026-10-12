@@ -395,7 +395,7 @@ Pad labels to the batch max `M`; produce `gt_labels [B,M,1]`, `gt_boxes [B,M,4]`
 ### Step D5. Mixed real+synthetic sampling (LOCO + SORDI)
 - Write `data/sordi.yaml` and an adapter that outputs the same label format after mapping SORDI categories to `pallet` (decide mapping from the real folder contents).
 - Sampling: a weighted sampler giving real images the majority share of each epoch (for example 70% LOCO / 30% SORDI) rather than concatenating datasets (SORDI is far larger).
-- **Validate only on the real LOCO validation split.** Never on SORDI.
+- **Pick `best.pt` on the real LOCO validation split (sub-set 1).** SORDI has its own 70/15/15 split (hash of the image name) and is scored alongside, never pooled with the real number. LOCO test is sub-set 4, kept for the final score (issue #71).
 - Run LOCO-only and LOCO+SORDI with identical settings and compare held-out LOCO mAP (section 8).
 - **Built:** `configs/data/loco_sordi.yaml` (`data=loco_sordi`), `palletvision_train/sordi.py` (reads a scene folder, `images/<n>.jpg` plus `labels/json/<n>.json`, mapping `pallet` and `stillage` to `pallet` as LOCO does) and `MixedSampler`, which makes each epoch every real image once plus a fresh random draw of synthetic images (default share 0.3).
 

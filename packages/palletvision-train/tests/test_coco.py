@@ -215,9 +215,15 @@ def test_real_loco_splits_resolve_to_images_on_disk() -> None:
     classes = yaml.safe_load((REPO / "contracts" / "classes.yaml").read_text())["stage1"]
     train = CocoDetection.from_config(data, "train", classes)  # raises if any image is missing
     val = CocoDetection.from_config(data, "val", classes)
-    assert (len(train), len(val)) == (2820, 2277)  # sub-sets 2, 3, 5 and 1, 4
+    test = CocoDetection.from_config(data, "test", classes)
+    assert (len(train), len(val), len(test)) == (2820, 1075, 1202)  # sub-sets 2, 3, 5; 1; 4
     assert sum(len(r.labels) for r in train.records) == 71_546
-    assert sum(len(r.labels) for r in val.records) == 54_302
-    for dataset in (train, val):  # a spot check of real decoding, since a full pass takes 15 s
+    assert sum(len(r.labels) for r in val.records) == 15_251
+    assert sum(len(r.labels) for r in test.records) == 39_051
+    for dataset in (
+        train,
+        val,
+        test,
+    ):  # a spot check of real decoding, since a full pass takes 15 s
         for i in range(0, len(dataset), 400):
             dataset[i]

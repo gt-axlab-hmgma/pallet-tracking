@@ -46,6 +46,21 @@ def test_the_metric_runs_every_n_epochs_and_always_after_the_last(tmp_path: Path
     assert torch.load(tmp_path / "best.pt")["epoch"] == 5  # scores only rose, so the last is best
 
 
+def test_extra_scores_are_logged_beside_the_metric_but_do_not_pick_best(tmp_path: Path) -> None:
+    def extras(model: YOLO26) -> dict[str, float]:
+        return {"sordi_val_map50_95": 0.9}  # high, yet best.pt follows the main metric
+
+    scores = iter([0.5, 0.2])  # the second epoch is worse
+    train(
+        small_model(), images(), epochs=2, output_dir=tmp_path, device="cpu", batch_size=4,
+        lr=1e-3, metric_fn=lambda model: next(scores), extra_metrics_fn=extras,
+    )  # fmt: skip
+    log = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
+    epochs = [e for e in log if e["type"] == "epoch"]
+    assert [e["sordi_val_map50_95"] for e in epochs] == [0.9, 0.9]
+    assert torch.load(tmp_path / "best.pt")["epoch"] == 1
+
+
 def test_the_model_is_left_in_training_mode_after_a_score(tmp_path: Path) -> None:
     model = small_model()
     modes: list[bool] = []

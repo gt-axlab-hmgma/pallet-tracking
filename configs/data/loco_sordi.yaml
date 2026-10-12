@@ -1,4 +1,7 @@
-# LOCO plus SORDI synthetic scenes. Validation is still the real LOCO validation split only.
+# LOCO plus SORDI synthetic scenes, with a train/val/test split of both.
+# LOCO is split by whole site (train 2, 3, 5; val 1; test 4) because its frames are video.
+# SORDI frames are independent views, so every image is assigned to train/val/test by a hash of
+# its name, 70/15/15, in every scene: adding scenes never moves an image already assigned.
 defaults:
   - loco
   - _self_
@@ -9,13 +12,17 @@ sordi:
   roots:
     - data/sordid-01
     - data/sordid-02
+    - data/sordid-03
     - data/sordid-04
     - data/sordid-05
     - data/sordid-06
+    - data/sordid-08
   # SORDI class names -> trained classes; the rest (dolly, forklift, boxes, ...) are dropped.
   # Same rule as LOCO: a stillage is trained as a pallet.
   class_map:
     pallet: pallet
     stillage: pallet
+  fractions: [0.70, 0.15, 0.15]  # train / val / test
+  val_images: 2000  # synthetic validation images scored every val_every epochs (fixed random draw)
   share: 0.3  # synthetic fraction of every epoch; the epoch is all real images plus this share
   limit: null  # keep only the first N synthetic images (smoke runs)

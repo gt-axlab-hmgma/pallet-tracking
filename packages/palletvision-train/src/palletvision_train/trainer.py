@@ -66,6 +66,7 @@ def train(
     resume: Path | str | None = None,
     metric_fn: Callable[[YOLO26], float] | None = None,
     metric_every: int = 1,
+    extra_metrics_fn: Callable[[YOLO26], dict[str, float]] | None = None,
     config: dict[str, Any] | None = None,
     sampler: Sampler[int] | None = None,
     on_epoch_start: Callable[[int], None] | None = None,
@@ -243,7 +244,7 @@ def train(
             break
 
         done_epochs = epoch + 1
-        metric = None
+        metric, extras = None, {}
         scored = metric_fn is not None and (
             done_epochs % metric_every == 0 or done_epochs == epochs
         )
@@ -251,6 +252,8 @@ def train(
             model.eval()
             with torch.no_grad():
                 metric = metric_fn(model)
+                if extra_metrics_fn is not None:
+                    extras = extra_metrics_fn(model)
             model.train()
             if best_metric is None or metric > best_metric:
                 best_metric = metric
@@ -264,9 +267,10 @@ def train(
         if log is not None:
             log.write(
                 "epoch", epoch=epoch, step=steps, alpha=alpha, loss=mean, metric=metric,
-                seconds=seconds,
+                seconds=seconds, **extras,
             )  # fmt: skip
             note = "" if metric is None else f"  metric {metric:.4f}"
+            note += "".join(f"  {name} {value:.4f}" for name, value in extras.items())
             print(f"epoch {done_epochs}/{epochs}  loss {mean:.3f}  alpha {alpha:.2f}", end="")
             print(f"{note}  {seconds:.0f}s")
 
