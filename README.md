@@ -266,7 +266,7 @@ uv run pv-train data=loco data.limit=8 data.num_workers=0 model.input_size=256 t
 | `data.size` | `640` | Synthetic image size in pixels. |
 | `data.num_samples` | `64` | Number of synthetic images. |
 | `data.limit` | `null` | Keep only the first N training images (smoke runs, overfit checks). With `loco_sordi` this limits the real images; `data.sordi.limit` limits the synthetic pool. |
-| `data.sordi.share` | `0.3` | `loco_sordi` only: the synthetic fraction of every epoch. An epoch is every real image once plus a fresh random draw of synthetic images (2,820 real + 1,209 synthetic at 0.3), so real images stay the majority whatever the pool size. |
+| `data.sordi.share` | `null` | `loco_sordi` only. `null` (default): real and synthetic images are one pool and every epoch is a uniform random draw of `data.sordi.epoch_images` (5,640) from it, so with all the SORDI scenes about 1% of an epoch is real. A number such as `0.5`: every real image once plus a fresh random draw of synthetic ones making that share of the epoch (the setting of experiment 002). The real LOCO validation score is logged either way and still picks `best.pt`. |
 | `data.augment.enabled` | `true` (loco) | Training augmentation: mosaic, zoom and shift, colour jitter and a flip, with the YOLO26 report's strengths (`data.augment.mosaic` 1.0, `scale` 0.5, `translate` 0.1, `fliplr` 0.5, `hsv_h/s/v` 0.02/0.7/0.4). Mosaic switches off for the last `data.augment.close_mosaic` (8) epochs. Validation is never augmented. `false` trains on plain letterboxed images. |
 | `data.num_workers` | `4` (loco) | Loader worker processes. |
 | `model.input_size` | `640` | Model input size; images are letterboxed to it. Keep equal to `data.size` for synthetic data. |

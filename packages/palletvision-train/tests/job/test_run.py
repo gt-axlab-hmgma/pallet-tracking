@@ -26,7 +26,8 @@ def test_the_full_run_is_the_overnight_recipe(tmp_path: Path) -> None:
     o = train_overrides(job(tmp_path, workers=6))
     assert {
         "data=loco_sordi",
-        "data.sordi.share=0.5",
+        "data.sordi.share=null",
+        "data.sordi.epoch_images=5640",
         "train.epochs=150",
         "train.val_every=5",
     } <= set(o)
@@ -138,3 +139,8 @@ def test_out_of_memory_after_a_checkpoint_does_not_change_the_batch(tmp_path: Pa
 
     train_with_restarts(j, run, pause=0)
     assert j.batch_size == 16
+
+
+def test_a_numeric_share_keeps_the_fixed_mix_of_the_earlier_experiments(tmp_path: Path) -> None:
+    o = train_overrides(job(tmp_path, share=0.5))
+    assert "data.sordi.share=0.5" in o and "data.sordi.share=null" not in o

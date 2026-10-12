@@ -14,10 +14,16 @@ from torch.utils.data import ConcatDataset
 from palletvision_model.config import SIZES
 from palletvision_model.loss import DetectionLoss
 from palletvision_model.yolo26 import YOLO26
+from palletvision_train.augment import AugmentedDataset
 from palletvision_train.cli import CONFIG_DIR, REPO, build_dataset, build_sampler
 from palletvision_train.coco import CocoDetection
 from palletvision_train.data import LetterboxedDataset
-from palletvision_train.sordi import MixedSampler, load_sordi_records, scene_folders
+from palletvision_train.sordi import (
+    MixedSampler,
+    UniformSampler,
+    load_sordi_records,
+    scene_folders,
+)
 from palletvision_train.synthetic import SyntheticBoxes
 from palletvision_train.trainer import TrainResult, train
 
@@ -146,6 +152,50 @@ def test_the_epochs_follow_torchs_random_state_so_a_resumed_run_repeats_them() -
     assert list(sampler) == a
 
 
+def test_a_uniform_epoch_is_a_random_draw_of_the_whole_pool_without_repeats() -> None:
+    sampler = UniformSampler(100, 30)
+    first, second = list(sampler), list(sampler)
+    assert len(sampler) == len(first) == 30 and len(set(first)) == 30 and first != second
+    assert all(0 <= i < 100 for i in first)
+
+
+def test_a_uniform_epoch_treats_every_image_alike() -> None:
+    """Real images (the first indices) are drawn at their share of the pool, no more, no less."""
+    torch.manual_seed(0)
+    sampler = UniformSampler(1000, 100)  # 10 real of 1000: 1% of the pool
+    real_drawn = sum(i < 10 for _ in range(300) for i in sampler)
+    assert 240 <= real_drawn <= 360  # 300 epochs x 100 draws x 1% = 300 expected
+
+
+def test_without_a_size_a_uniform_epoch_is_the_whole_pool_and_too_big_is_clipped() -> None:
+    assert sorted(UniformSampler(20)) == list(range(20))
+    assert len(UniformSampler(20, 99)) == 20
+
+
+def test_uniform_epochs_follow_torchs_random_state_so_a_resumed_run_repeats_them() -> None:
+    sampler = UniformSampler(100, 30)
+    torch.manual_seed(5)
+    expected = [list(sampler) for _ in range(3)]
+    torch.manual_seed(5)
+    assert [list(sampler) for _ in range(3)] == expected
+
+
+def test_uniform_processes_draw_the_same_epoch_and_keep_their_own_slice() -> None:
+    shards = [list(UniformSampler(100, 30, seed=3, rank=r, world_size=4)) for r in range(4)]
+    assert all(len(s) == 8 for s in shards)  # 30 images over 4 processes, padded to equal length
+    assert set(sum(shards, [])) == set(UniformSampler(100, 30, seed=3))
+    again = UniformSampler(100, 30, seed=3)
+    again.set_epoch(1)
+    assert list(again) != list(UniformSampler(100, 30, seed=3))  # a new epoch is a new draw
+
+
+def test_uniform_sampling_needs_a_seed_for_several_processes_and_a_valid_rank() -> None:
+    with pytest.raises(ValueError, match="seed"):
+        UniformSampler(10, 5, world_size=2)
+    with pytest.raises(ValueError, match="rank"):
+        UniformSampler(10, 5, seed=0, rank=2, world_size=2)
+
+
 def test_no_synthetic_share_is_just_the_real_images() -> None:
     assert sorted(MixedSampler(10, 50, 0.0)) == list(range(10))
 
@@ -188,6 +238,7 @@ def test_the_loco_sordi_config_builds_the_real_dataset_and_the_mixed_epoch() -> 
             "config",
             overrides=[
                 "data=loco_sordi",
+                "data.sordi.share=0.3",  # the fixed-share mix of experiment 002
                 "data.limit=40",
                 "data.sordi.limit=50",
                 "data.sordi.roots=[data/sordid-02]",  # not every scene: they take minutes to read
@@ -202,6 +253,26 @@ def test_the_loco_sordi_config_builds_the_real_dataset_and_the_mixed_epoch() -> 
     assert image.shape == (640, 640, 3) and labels.shape[1] == 5
 
 
+@pytest.mark.skipif(not HAS_DATA, reason="LOCO and SORDI data not present")
+def test_by_default_real_and_synthetic_images_are_one_pool() -> None:
+    with initialize_config_dir(CONFIG_DIR, version_base=None):
+        cfg = compose(
+            "config",
+            overrides=[
+                "data=loco_sordi",
+                "data.limit=40",
+                "data.sordi.limit=50",
+                "data.sordi.epoch_images=30",
+                "data.sordi.roots=[data/sordid-02]",
+            ],
+        )
+    dataset = build_dataset(cfg, ["pallet"])
+    sampler = build_sampler(cfg, dataset)
+    assert isinstance(sampler, UniformSampler)
+    assert (sampler.n, len(sampler)) == (90, 30)  # 40 real and 50 synthetic images, drawn alike
+    assert isinstance(dataset, AugmentedDataset) and dataset.partners is None  # whole pool
+
+
 def test_other_datasets_keep_plain_shuffling() -> None:
     with initialize_config_dir(CONFIG_DIR, version_base=None):
         cfg = compose("config", overrides=["data=loco"])
@@ -212,7 +283,7 @@ def test_the_loco_sordi_config_trains_pallets_and_stillages_as_one_class() -> No
     with initialize_config_dir(CONFIG_DIR, version_base=None):
         cfg = compose("config", overrides=["data=loco_sordi"])
     assert dict(cfg.data.class_map) == dict(cfg.data.sordi.class_map) == CLASS_MAP
-    assert cfg.data.sordi.share == 0.3
+    assert cfg.data.sordi.share is None and cfg.data.sordi.epoch_images == 5640
     assert list(cfg.data.annotations) == [
         "train",
         "val",

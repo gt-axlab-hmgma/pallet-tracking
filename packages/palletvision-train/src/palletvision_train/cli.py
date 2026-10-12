@@ -16,7 +16,13 @@ from palletvision_train.data import LetterboxedDataset, Sample
 from palletvision_train.distributed import current, init_distributed, shutdown
 from palletvision_train.evaluate import evaluate
 from palletvision_train.pretrained import load_pretrained
-from palletvision_train.sordi import MixedPartners, MixedSampler, sordi_records, subsample
+from palletvision_train.sordi import (
+    MixedPartners,
+    MixedSampler,
+    UniformSampler,
+    sordi_records,
+    subsample,
+)
 from palletvision_train.synthetic import SyntheticBoxes
 from palletvision_train.trainer import TrainResult, train
 
@@ -57,7 +63,9 @@ def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
     partners = None
     if cfg.data.name == "loco_sordi":  # real images first, then the synthetic pool
         pool = build_sordi(cfg, classes)
-        partners = MixedPartners(len(base), len(pool), cfg.data.sordi.share)  # type: ignore[arg-type]
+        share = cfg.data.sordi.get("share")  # null: one pool, mosaic partners from all of it
+        if share is not None:
+            partners = MixedPartners(len(base), len(pool), share)  # type: ignore[arg-type]
         base = ConcatDataset([base, pool])
     augment = cfg.data.get("augment")
     if augment is not None and augment.get("enabled", True):
@@ -89,16 +97,27 @@ def build_sordi(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
 
 
 def build_sampler(cfg: DictConfig, dataset: Dataset[Sample]) -> Sampler[int] | None:
-    """The mixed real/synthetic epoch for ``data=loco_sordi``; every other dataset shuffles."""
+    """The epoch of ``data=loco_sordi``; every other dataset shuffles.
+
+    ``data.sordi.share`` null (the default): real and synthetic images are one pool and each epoch
+    is a uniform draw of ``data.sordi.epoch_images``. A number: every real image once plus enough
+    synthetic ones to make that share of the epoch.
+    """
     if cfg.data.name != "loco_sordi":
         return None
     assert isinstance(dataset, (LetterboxedDataset, AugmentedDataset))
     assert isinstance(dataset.base, ConcatDataset)
     real, synthetic = dataset.base.datasets
     info = current()
+    seed = cfg.seed if info.distributed else None
+    if cfg.data.sordi.get("share") is None:
+        return UniformSampler(
+            len(dataset.base), cfg.data.sordi.get("epoch_images"),
+            seed=seed, rank=info.rank, world_size=info.world_size,
+        )  # fmt: skip
     return MixedSampler(
         len(real), len(synthetic), cfg.data.sordi.share,  # type: ignore[arg-type]
-        seed=cfg.seed if info.distributed else None, rank=info.rank, world_size=info.world_size,
+        seed=seed, rank=info.rank, world_size=info.world_size,
     )  # fmt: skip
 
 

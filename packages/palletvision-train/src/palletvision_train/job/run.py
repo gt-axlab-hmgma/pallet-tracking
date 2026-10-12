@@ -43,7 +43,8 @@ class JobConfig:
     epochs: int = 150
     batch_size: int = 16
     workers: int = 4
-    share: float = 0.5
+    share: float | None = None  # synthetic share of each epoch; None: real and synthetic alike
+    epoch_images: int = 5640  # images per epoch when share is None
     gpus: int = 1
     retries: int = 10
     full_eval: bool = False
@@ -79,7 +80,8 @@ def train_overrides(job: JobConfig) -> list[str]:
         ]
     roots = "[" + ",".join(job.roots) + "]"
     base = [
-        "data=loco_sordi", f"data.sordi.share={job.share}", f"data.sordi.roots={roots}",
+        "data=loco_sordi", f"data.sordi.share={'null' if job.share is None else job.share}",
+        f"data.sordi.epoch_images={job.epoch_images}", f"data.sordi.roots={roots}",
         f"data.num_workers={job.workers}", *common,
     ]  # fmt: skip
     if job.init_from:

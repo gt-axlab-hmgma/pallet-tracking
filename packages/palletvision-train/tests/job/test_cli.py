@@ -57,3 +57,14 @@ def test_a_synthetic_smoke_run_produces_the_bundle(tmp_path: Path) -> None:
                 "0",
             ]
         )
+
+
+def test_share_is_uniform_by_default_or_a_number_below_one() -> None:
+    from palletvision_train.job.cli import parse
+
+    assert parse(["run"]).share is None and parse(["run"]).epoch_images == 5640
+    assert parse(["run", "--share", "uniform"]).share is None
+    assert parse(["run", "--share", "0.5", "--epoch-images", "1000"]).share == 0.5
+    for bad in ("1", "-0.1", "abc"):
+        with pytest.raises(SystemExit):
+            parse(["run", "--share", bad])
