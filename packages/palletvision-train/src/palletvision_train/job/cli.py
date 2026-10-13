@@ -110,6 +110,10 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     )  # fmt: skip
     run.add_argument("--amp", action="store_true", help="mixed precision (faster on a GPU)")
     run.add_argument(
+        "--set", dest="extra", action="append", default=[], metavar="KEY=VALUE",
+        help="any other pv-train override, applied last (repeatable): --set train.lr=0.005",
+    )  # fmt: skip
+    run.add_argument(
         "--budget-hours", type=float, default=None,
         help="size the run to this many hours: every epoch is the whole train set, and the train "
         "set is as big as the measured speed allows for --epochs epochs",
@@ -117,6 +121,11 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     run.add_argument(
         "--train-images", type=int, default=None,
         help="total train images, real and synthetic alike (every epoch is all of them)",
+    )  # fmt: skip
+    run.add_argument(
+        "--epoch-fraction", type=float, default=None,
+        help="with --budget-hours or --train-images: each epoch is a fresh random draw of this "
+        "fraction (0 to 1) of the train set instead of all of it",
     )  # fmt: skip
     run.add_argument(
         "--speed-margin", type=float, default=0.6,
@@ -157,12 +166,18 @@ def size_run(job: JobConfig, args: argparse.Namespace) -> None:
                     "epochs": job.epochs, "views": total * job.epochs}  # fmt: skip
         if job.plan["pool_images"] < 1:
             raise SystemExit(f"--train-images must exceed LOCO's {n_real} train images")
-    job.pool_images, job.epoch_images, job.share = job.plan["pool_images"], None, None
+    fraction = getattr(args, "epoch_fraction", None)
+    if fraction is not None and not 0 < fraction <= 1:
+        raise SystemExit(f"--epoch-fraction must be in (0, 1], got {fraction}")
     plan = job.plan
+    per_epoch = None if fraction in (None, 1) else round(plan["train_images"] * fraction)
+    plan["epoch_images"] = per_epoch or plan["train_images"]
+    plan["views"] = plan["epoch_images"] * plan["epochs"]
+    job.pool_images, job.epoch_images, job.share = plan["pool_images"], per_epoch, None
+    what = "the whole train set" if per_epoch is None else f"a random {plan['epoch_images']:,}"
     print(
-        f"plan: {plan['epochs']} epochs, each the whole train set of {plan['train_images']:,} "
-        f"images "
-        f"({plan['real_images']:,} LOCO + {plan['pool_images']:,} SORDI, drawn alike) = "
+        f"plan: {plan['epochs']} epochs, each {what} of the {plan['train_images']:,} train "
+        f"images ({plan['real_images']:,} LOCO + {plan['pool_images']:,} SORDI, drawn alike) = "
         f"{plan['views']:,} image views"
         + (f"; {plan['measured_images_per_second']} img/s measured x {plan['margin']} margin "
            f"for {plan['budget_hours']} h" if "budget_hours" in plan else "")
@@ -215,7 +230,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         name=name, run_dir=args.runs_dir / f"job-{name}", smoke=args.smoke, synthetic=synthetic,
         epochs=args.epochs, batch_size=args.batch_size, workers=args.workers,
         share=getattr(args, "share", None), epoch_images=getattr(args, "epoch_images", 5640),
-        amp=getattr(args, "amp", False),
+        amp=getattr(args, "amp", False), extra=list(getattr(args, "extra", [])),
         gpus=gpu_count(args.gpus), retries=args.retries,
         full_eval=getattr(args, "full_eval", False), resume=args.resume, roots=roots,
         init_from=getattr(args, "init_from", None), pool_images=getattr(args, "pool_images", None),
