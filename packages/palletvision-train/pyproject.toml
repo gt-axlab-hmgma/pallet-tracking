@@ -26,6 +26,7 @@ pv-eval = "palletvision_train.eval_cli:main"
 pv-plot = "palletvision_train.plot:main"
 pv-doctor = "palletvision_train.doctor:main"
 pv-job = "palletvision_train.job.cli:main"
+pv-convert = "palletvision_train.convert:main"
 
 [build-system]
 requires = ["hatchling"]
