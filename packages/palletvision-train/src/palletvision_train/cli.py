@@ -62,6 +62,8 @@ def build_dataset(cfg: DictConfig, classes: list[str]) -> Dataset[Sample]:
         base = Subset(base, range(min(int(limit), len(base))))  # type: ignore[arg-type]
     partners = None
     if cfg.data.name == "loco_sordi":  # real images first, then the synthetic pool
+        if not cfg.data.get("real_train", True):  # synthetic only: no real image is trained on
+            base = Subset(base, range(0))
         pool = build_sordi(cfg, classes)
         share = cfg.data.sordi.get("share")  # null: one pool, mosaic partners from all of it
         if share is not None:
@@ -148,6 +150,10 @@ def resume_path(cfg: DictConfig) -> Path | None:
     return Path(setting)
 
 
+def classes_of() -> list[str]:
+    return list(yaml.safe_load((REPO / "contracts" / "classes.yaml").read_text())["stage1"])
+
+
 def build_metric(cfg: DictConfig) -> Callable[[YOLO26], float] | None:
     """``train.val_every`` > 0 scores the real LOCO validation split with mAP50-95 every N epochs.
 
@@ -158,6 +164,9 @@ def build_metric(cfg: DictConfig) -> Callable[[YOLO26], float] | None:
         return None
     if cfg.data.name not in LOCO_DATA:
         raise SystemExit("train.val_every needs data=loco: only LOCO has a validation split")
+    if cfg.train.get("select_on", "loco") == "sordi":  # best.pt picked on synthetic images
+        records = sordi_split(cfg, classes_of(), "val")
+        return scorer(cfg, CocoDetection(subsample(records, cfg.data.sordi.get("val_images"))))
     reader = loco_reader("val")
     limit = cfg.data.get("val_limit")
     if limit is not None:
@@ -172,6 +181,9 @@ def build_extra_metrics(
     draw), scored with the same metric and logged next to the real one."""
     if not cfg.train.get("val_every") or cfg.data.name != "loco_sordi":
         return None
+    if cfg.train.get("select_on", "loco") == "sordi":  # the other way round: log the real score
+        real = scorer(cfg, loco_reader("val"))
+        return lambda model: {"loco_val_map50_95": real(model)}
     records = sordi_split(cfg, classes, "val")
     score = scorer(cfg, CocoDetection(subsample(records, cfg.data.sordi.get("val_images"))))
     return lambda model: {"sordi_val_map50_95": score(model)}
@@ -223,6 +235,7 @@ def train_from_config(cfg: DictConfig) -> TrainResult:
         alpha_init=cfg.train.get("alpha_init", 0.8), alpha_final=cfg.train.get("alpha_final", 0.1),
         ema=cfg.train.get("ema", False), ema_decay=cfg.train.get("ema_decay", 0.9999),
         ema_tau=cfg.train.get("ema_tau", 2000.0),
+        freeze=cfg.train.get("freeze", 0), patience=cfg.train.get("patience", 0),
         config={str(k): v for k, v in config.items()},
         sampler=build_sampler(cfg, dataset), on_epoch_start=build_epoch_hook(cfg, dataset),
         seed=cfg.seed,

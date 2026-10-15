@@ -1,6 +1,7 @@
-"""Print one table of finished pv-job runs: python scripts/compare_runs.py name [name ...]
+"""Print one table of finished pv-job runs: python scripts/compare_runs.py name-or-folder [...]
 
-A name is the --name given to pv-job (results are in runs/results-<name>/). Scores are the best
+A name is the --name given to pv-job (results are in runs/results-<name>/); a folder is a
+results folder holding manifest.json (runs/exp-NNN-topic/<run>/results). Scores are the best
 checkpoint's mAP50-95 (and mAP50 in brackets); SORDI scores use a fixed 5,000-image draw.
 """
 
@@ -23,7 +24,11 @@ def cell(scores: dict[str, dict[str, float]], key: str) -> str:
 print("| " + " | ".join(COLUMNS) + " |")
 print("|" + "---|" * len(COLUMNS))
 for name in sys.argv[1:]:
-    path = runs / f"results-{name}" / "manifest.json"
+    path = (
+        (Path(name) / "manifest.json")
+        if Path(name).is_dir()
+        else runs / f"results-{name}" / "manifest.json"
+    )
     if not path.exists():
         print(f"| {name} | not finished |" + " |" * (len(COLUMNS) - 2))
         continue

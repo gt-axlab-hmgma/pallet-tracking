@@ -8,9 +8,9 @@
 # every epoch is all of them, 6 epochs. Both use the per-step alpha schedule and a short EMA.
 # Pass check: C beats S by more than about 0.01 mAP50-95 on LOCO val (single seed: the noise is about 0.005).
 #
-#   bash scripts/stage1-coco-vs-scratch.sh [tag]      (needs the data and the converted weights on disk)
+#   bash experiments/003-coco-init/run_scratch-vs-coco_20k-x6ep.sh [tag]      (needs the data and the converted weights on disk)
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 TAG="${1:-stage1}"
 [ -f data/yolo26n_coco_converted.pt ] || { echo "data/yolo26n_coco_converted.pt is missing"; exit 1; }
 COMMON=(--scenes "01,02,04,05,06" --train-images 20000 --epochs 6 --no-fetch --resume

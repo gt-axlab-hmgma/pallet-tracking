@@ -33,7 +33,7 @@ bash scripts/pallet-job.sh run --init-from <pretrained.pt> --scenes "01,02,04,05
   --set data.augment.close_mosaic=1
 ```
 
-- **Data:** all 2,820 LOCO train images plus about 45,000 SORDI images, every epoch the whole set. At equal training, more distinct images beat repeats (the one-hour experiment: 34,000 distinct images scored about 4x 3,820 repeated nine times on synthetic data), so use many distinct images and few passes. About 190,000 image views.
+- **Data:** all 2,820 LOCO train images plus about 45,000 SORDI images, every epoch the whole set. At equal training, more distinct images beat repeats (experiment 004, the one-hour arms: 34,000 distinct images scored about 4x 3,820 repeated nine times on synthetic data), so use many distinct images and few passes. About 190,000 image views.
 - **Learning rate:** measured in experiment 003: a lower rate for the copied tensors did not help. `pretrained_lr_mult` 0.1, 0.2, 0.5 and 1.0 scored 0.098, 0.126, 0.152 and 0.169 on LOCO test, so use 1.0 (no separate rate). The freeze-then-unfreeze protection of [LP-FT](https://arxiv.org/abs/2202.10054v1) was not needed at this scale.
 - **Progressive loss:** `step` so a few epochs still anneal; start at 0.3 because a pretrained model has already passed the early phase.
 - **EMA** with a short horizon (`0.995`, about 200 updates), since a fine-tune has only about 1,500 updates.

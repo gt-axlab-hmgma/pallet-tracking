@@ -6,6 +6,7 @@ defaults:
   - loco
   - _self_
 name: loco_sordi
+real_train: true  # false: train on the synthetic images only (LOCO is still used to score)
 sordi:
   # scene folders (see data/README.md). A scene is either one folder with images/ and labels/json/
   # or a folder of DR-1, DR-2... levels laid out that way, and all of its levels are used.
