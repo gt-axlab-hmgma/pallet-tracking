@@ -374,4 +374,4 @@ def test_real_train_false_trains_on_synthetic_images_only() -> None:
     dataset = build_dataset(cfg, ["pallet"])
     sampler = build_sampler(cfg, dataset)
     assert sampler is not None and len(sampler) == 50  # type: ignore[arg-type]
-    assert len(dataset.base.datasets[0]) == 0 and len(dataset) == 50  # type: ignore[attr-defined]
+    assert len(dataset.base.datasets[0]) == 0 and len(dataset) == 50  # type: ignore[attr-defined,arg-type]
