@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Stage 2a: how fast should the COCO-pretrained tensors train? One factor changes, the learning-rate
 # multiple of the transferred tensors (the fresh class branch keeps lr 0.01); everything else is
-# exactly the COCO arm of stage 1 (scripts/stage1-coco-vs-scratch.sh, run "stage1-C" is the 0.2 point):
+# exactly the COCO arm of stage 1 (experiments/003-coco-init/run_scratch-vs-coco_20k-x6ep.sh, run "stage1-C" is the 0.2 point):
 # the same 20,000 train images (the SORDI subsample is seeded, so it is the same images), 6 epochs,
 # 120,000 views, alpha starting at 0.3, EMA, bias warm-up 0.01, seed 0.
 #
 #   M0.1  0.1x   M0.5  0.5x   M1.0  1.0x (no separate rate: an ordinary full fine-tune)
 # About 55 minutes per arm (2 h 45 min in all). Single seed: a gap under about 0.01 mAP50-95 is noise.
 #
-#   UV_OFFLINE=1 bash scripts/stage2-lr-multiple.sh [tag]     (needs the data and the converted weights)
+#   UV_OFFLINE=1 bash experiments/003-coco-init/run_coco_lr-multiple-0.1-0.5-1.0_20k-x6ep.sh [tag]     (needs the data and the converted weights)
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 TAG="${1:-stage2}"
 [ -f data/yolo26n_coco_converted.pt ] || { echo "data/yolo26n_coco_converted.pt is missing"; exit 1; }
 COMMON=(--scenes "01,02,04,05,06" --train-images 20000 --epochs 6 --no-fetch --resume

@@ -14,7 +14,7 @@ With 1 class, `train.init_from` copies 606 tensors (backbone, neck, box branches
 
 ## Config
 
-Mac (Apple M5 Pro, MPS, float32), single seed (0), about 55 minutes per run, scripts `scripts/stage1-coco-vs-scratch.sh` and `scripts/stage2-lr-multiple.sh` (tables with `scripts/compare_runs.py`). Common to every run:
+Mac (Apple M5 Pro, MPS, float32), single seed (0), about 55 minutes per run, scripts `run_scratch-vs-coco_20k-x6ep.sh` and `run_coco_lr-multiple-0.1-0.5-1.0_20k-x6ep.sh` (both in this folder) (tables with `scripts/compare_runs.py`). Common to every run:
 
 - Data: LOCO train (2,820) plus a seeded random SORDI subsample (17,180 images from scenes 01, 02, 04, 05, 06): 20,000 train images, real and synthetic drawn alike (`data.sordi.share=null`); every epoch is all of them, 6 epochs, 120,000 image views.
 - Optimiser MuSGD lr 0.01, nominal batch 128 (16 x 8), warmup 0.4 epoch, linear decay, augmentation as the report, mosaic off in the last epoch, per-step progressive-loss weight (`train.alpha_schedule=step`), EMA (decay 0.995, tau 200), `best.pt` picked on LOCO val, scored every 3 epochs.
@@ -52,6 +52,6 @@ For reference, the earlier from-scratch overnight run (846,000 views, share 0.5,
 Use the COCO weights with multiplier 1.0 (no separate rate). Not yet done:
 
 1. **Ablate the two guesses** at multiplier 1.0: EMA on/off and alpha start 0.3 against 0.8 (about 45 minutes each on the Mac).
-2. **Data size at equal views** (about 12k, 48k, 120k distinct images; the one-hour experiment says distinct images matter).
+2. **Data size at equal views** (about 12k, 48k, 120k distinct images; experiment 004 shows distinct images matter).
 3. **The long run** on the 5060 laptop: `bash scripts/pallet-job.sh run --budget-hours 14 --amp --init-from data/yolo26n_coco_converted.pt --epochs 12 --scenes "01,02,04,05,06" --set train.pretrained_lr_mult=1.0 --set train.alpha_schedule=step --set train.alpha_init=0.3 --set train.ema=true --set train.ema_decay=0.999 --set train.ema_tau=1000 --set data.augment.close_mosaic=2 --set train.warmup_epochs=0.5 --set train.warmup_bias_lr=0.01 --name coco-long`, with a matched from-scratch run as the control. At about 100 images/s this is roughly the whole SORDI train pool for 12 epochs; read the plan line it prints, and run `run --smoke --amp` first (the first CUDA run ever). Judge it on LOCO test against 0.169 (this experiment) and 0.187 (scratch overnight).
 4. Settle the weights' licence question with the PI before any shipped model starts from them.
