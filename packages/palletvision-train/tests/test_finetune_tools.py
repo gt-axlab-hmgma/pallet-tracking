@@ -309,3 +309,69 @@ def test_a_resumed_run_with_an_average_matches_the_uninterrupted_one(tmp_path: P
     for key in a["model"]:
         assert torch.allclose(a["model"][key].float(), b["model"][key].float(), atol=1e-6), key
         assert torch.allclose(a["raw_model"][key].float(), b["raw_model"][key].float(), atol=1e-6)
+
+
+# ---- freezing the backbone, and stopping early ----
+
+
+def test_freeze_ten_keeps_all_but_the_last_backbone_layer_fixed(tmp_path: Path) -> None:
+    model = model_with(0)
+    before = {n: p.detach().clone() for n, p in model.named_parameters()}
+    train(model, images(), epochs=1, output_dir=tmp_path, optimizer_name="sgd", momentum=0.9,
+          freeze=10, **COMMON)  # fmt: skip
+    moved = {n for n, p in model.named_parameters() if not torch.equal(p, before[n])}
+    fixed = {n for n, p in model.named_parameters() if not p.requires_grad}
+    assert fixed and all(n.startswith("backbone") for n in fixed)
+    assert not (moved & fixed)
+    assert any(n.startswith("backbone.to_p5.3") for n in moved)  # the attention layer still learns
+    assert any(n.startswith("head") for n in moved)
+
+
+def test_freeze_zero_trains_everything_and_an_impossible_value_is_refused(tmp_path: Path) -> None:
+    model = model_with(0)
+    train(model, images(), epochs=1, output_dir=tmp_path, **COMMON)
+    assert all(p.requires_grad for p in model.parameters())
+    with pytest.raises(ValueError):
+        train(model_with(0), images(), epochs=1, output_dir=tmp_path / "x", freeze=24, **COMMON)
+
+
+def test_patience_stops_the_run_after_that_many_epochs_without_improvement(tmp_path: Path) -> None:
+    scores = iter([0.5, 0.4, 0.3, 0.2, 0.1, 0.0])
+    result = train(model_with(0), images(), epochs=6, output_dir=tmp_path,
+                   metric_fn=lambda _m: next(scores), patience=2, **COMMON)  # fmt: skip
+    assert len(result.alphas) == 6  # 2 steps per epoch, 3 epochs: best at epoch 1, stop at 3
+    assert result.best_metric == 0.5
+
+
+def test_without_patience_every_epoch_runs(tmp_path: Path) -> None:
+    scores = iter([0.5, 0.4, 0.3, 0.2])
+    result = train(model_with(0), images(), epochs=4, output_dir=tmp_path,
+                   metric_fn=lambda _m: next(scores), **COMMON)  # fmt: skip
+    assert len(result.alphas) == 8
+
+
+def test_freeze_twenty_three_trains_only_the_head(tmp_path: Path) -> None:
+    model = model_with(0)
+    before = {n: p.detach().clone() for n, p in model.named_parameters()}
+    train(model, images(), epochs=1, output_dir=tmp_path, optimizer_name="sgd", momentum=0.9,
+          freeze=23, **COMMON)  # fmt: skip
+    moved = {n for n, p in model.named_parameters() if not torch.equal(p, before[n])}
+    assert moved and all(n.startswith("head") for n in moved)
+    assert all(not p.requires_grad for n, p in model.named_parameters() if not n.startswith("head"))
+
+
+@pytest.mark.skipif(not (Path(__file__).parents[3] / "data/sordid-02").exists(), reason="no data")
+def test_real_train_false_trains_on_synthetic_images_only() -> None:
+    from hydra import compose, initialize_config_dir
+
+    from palletvision_train.cli import CONFIG_DIR, build_dataset, build_sampler
+
+    with initialize_config_dir(config_dir=CONFIG_DIR, version_base=None):
+        cfg = compose("config", overrides=[
+            "data=loco_sordi", "data.real_train=false", "data.sordi.roots=[data/sordid-02]",
+            "data.sordi.subsample=50", "data.sordi.epoch_images=null",
+        ])  # fmt: skip
+    dataset = build_dataset(cfg, ["pallet"])
+    sampler = build_sampler(cfg, dataset)
+    assert sampler is not None and len(sampler) == 50  # type: ignore[arg-type]
+    assert len(dataset.base.datasets[0]) == 0 and len(dataset) == 50  # type: ignore[attr-defined]

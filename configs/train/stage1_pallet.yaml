@@ -23,5 +23,8 @@ alpha_final: 0.1
 ema: false  # keep an exponential moving average of the weights: it is scored and saved as the model
 ema_decay: 0.9999  # about 1 / (1 - decay) updates are averaged: 0.99 to 0.995 for a fine-tune of a thousand updates
 ema_tau: 2000  # the decay ramps up over about this many updates
+freeze: 0  # fine-tuning: keep the first N backbone layers fixed (Ultralytics' freeze=10 is all but the last backbone layer)
+select_on: loco  # which validation split picks best.pt: loco (real, the default) or sordi (synthetic)
+patience: 0  # stop after this many scored epochs without improvement; 0 never (needs val_every)
 resume: null  # null starts fresh; a checkpoint path resumes it; "auto" resumes <output_dir>/last.pt if present
 val_every: 0  # score the validation split every N epochs (and after the last); 0 never. Needs data=loco

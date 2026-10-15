@@ -9,6 +9,7 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
+from torch.nn import Module
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, Sampler
 
@@ -38,6 +39,25 @@ class TrainResult:
     best_metric: float | None = None
     start_epoch: int = 0  # 0 for a fresh run, the first epoch run after a resume otherwise
     updates: int = 0  # optimiser updates this call made (fewer than batches when accumulating)
+
+
+def freeze_backbone(model: YOLO26, layers: int) -> None:
+    """Stop gradients for the first ``layers`` layers, numbered as in the layer comments of
+    ``Backbone`` and ``Neck`` (Ultralytics' ``freeze``): 0 to 10 are the backbone (10 is its last
+    layer, C2PSA), 11 to 22 the neck, and 23 the head, so ``layers=10`` keeps all of the backbone
+    but C2PSA fixed and ``layers=23`` trains only the head. Layers without weights (upsample,
+    concat) count but hold nothing."""
+    backbone = model.backbone
+    stack: list[Module | None] = [*backbone.to_p3, *backbone.to_p4, *backbone.to_p5]  # 0..10
+    neck = model.neck
+    stack += [None, None, neck.td4, None, None, neck.td3, neck.down3, None, neck.bu4, neck.down4]
+    stack += [None, neck.bu5]  # 11..22
+    if not 0 <= layers <= len(stack):
+        raise ValueError(f"freeze must be between 0 and {len(stack)}, got {layers}")
+    for layer in stack[:layers]:
+        if layer is not None:
+            for parameter in layer.parameters():
+                parameter.requires_grad_(False)
 
 
 def train(
@@ -80,6 +100,8 @@ def train(
     ema: bool = False,
     ema_decay: float = 0.9999,
     ema_tau: float = 2000.0,
+    freeze: int = 0,
+    patience: int = 0,
 ) -> TrainResult:
     """Train ``model`` on letterboxed ``(image, labels)`` samples.
 
@@ -116,6 +138,11 @@ def train(
     ``metric_fn`` scores and what ``last.pt`` and ``best.pt`` hold as ``model``; the weights being
     trained go to ``raw_model`` for resuming.
 
+    ``freeze`` keeps the first N layers (0 to 23, see ``freeze_backbone``: 10 is the backbone but
+    its last layer, 23 everything but the head) fixed: their weights get no gradient.
+    ``patience`` stops the run when the scored metric has not improved for that many epochs (0:
+    never; needs scoring, and a single process).
+
     ``sampler`` chooses which images each epoch uses (default: every image once, shuffled); an
     epoch is as long as the sampler says, e.g. ``MixedSampler``.
 
@@ -149,6 +176,10 @@ def train(
     accumulate = max(round(nominal_batch / per_step), 1) if nominal_batch else 1
     if nominal_batch:
         weight_decay *= per_step * accumulate / nominal_batch
+    if freeze:
+        freeze_backbone(model, freeze)
+    if patience and info.distributed:
+        raise ValueError("patience is not supported with several processes")
     optimizer = build_optimizer(
         model, optimizer_name, lr, weight_decay, momentum, muon, sgd, pretrained, pretrained_lr_mult
     )
@@ -208,6 +239,7 @@ def train(
             )  # fmt: skip
 
     stopped = False
+    best_epoch = done_epochs  # the epoch of the best score; a resumed run counts from where it is
     for epoch in range(done_epochs, epochs):
         alpha = progressive_alpha(epoch, epochs, alpha_init, alpha_final)
         if on_epoch_start is not None:
@@ -283,7 +315,7 @@ def train(
                     extras = extra_metrics_fn(scored_model)
             model.train()
             if best_metric is None or metric > best_metric:
-                best_metric = metric
+                best_metric, best_epoch = metric, done_epochs
                 checkpoint(best)
                 result.best = best
         checkpoint(last)
@@ -300,6 +332,9 @@ def train(
             note += "".join(f"  {name} {value:.4f}" for name, value in extras.items())
             print(f"epoch {done_epochs}/{epochs}  loss {mean:.3f}  alpha {alpha:.2f}", end="")
             print(f"{note}  {seconds:.0f}s")
+        if patience and metric_fn is not None and done_epochs - best_epoch >= patience:
+            print(f"no improvement for {patience} epochs: stopping after epoch {done_epochs}")
+            break
 
     if stopped or not (last.exists() or not main):
         checkpoint(last)  # a smoke run cut short by max_steps still leaves a checkpoint
