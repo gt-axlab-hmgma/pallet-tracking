@@ -5,8 +5,8 @@ import cv2
 import numpy as np
 
 from palletvision_infer.detections import Detections, Detector
-from palletvision_infer.frame_source import FrameSource
-from palletvision_infer.overlay import draw
+from palletvision_infer.media.frame_source import FrameSource
+from palletvision_infer.media.overlay import draw
 
 
 class DummyDetector:

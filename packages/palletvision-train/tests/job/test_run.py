@@ -58,7 +58,7 @@ def test_a_synthetic_run_needs_no_data(tmp_path: Path) -> None:
 
 def test_several_gpus_start_one_process_each(tmp_path: Path) -> None:
     one, four = train_command(job(tmp_path)), train_command(job(tmp_path, gpus=4))
-    assert "torch.distributed.run" not in one and "palletvision_train.cli" in one
+    assert "torch.distributed.run" not in one and "palletvision_train.cli.train" in one
     assert "torch.distributed.run" in four and "--nproc_per_node=4" in four
 
 

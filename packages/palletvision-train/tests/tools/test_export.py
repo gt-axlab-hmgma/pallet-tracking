@@ -1,0 +1,38 @@
+from pathlib import Path
+
+import numpy as np
+import onnx
+import onnxruntime as ort
+import torch
+import yaml
+
+from palletvision_model.tiny import TinyDetector
+from palletvision_train.tools.export import export_onnx, main
+
+CONTRACT = Path(__file__).resolve().parents[4] / "contracts" / "model_io.yaml"
+
+
+def test_export_matches_torch_and_contract(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    model = TinyDetector(input_size=64).eval()
+    path = export_onnx(model, tmp_path / "m.onnx", size=64)
+
+    graph = onnx.load(str(path))
+    io = yaml.safe_load(CONTRACT.read_text())
+    assert graph.opset_import[0].version == io["onnx_opset"]
+    assert graph.graph.input[0].name == io["input"]["name"]
+    assert graph.graph.output[0].name == io["outputs"][0]["name"]
+
+    x = torch.rand(1, 3, 64, 64)
+    expected = model(x).detach().numpy()
+    session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    (actual,) = session.run(None, {"images": x.numpy()})
+    np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-4)
+
+
+def test_cli_exports_checkpoint(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "last.pt"  # the format the trainer writes: {"model": state_dict, ...}
+    torch.save({"model": TinyDetector(input_size=64).state_dict(), "steps": 0}, checkpoint)
+    out = tmp_path / "model.onnx"
+    main(["--checkpoint", str(checkpoint), "--size", "64", "--out", str(out)])
+    assert out.exists()

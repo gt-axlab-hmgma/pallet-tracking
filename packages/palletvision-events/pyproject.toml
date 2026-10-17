@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pv-db = "palletvision_events.db:main"
+pv-db = "palletvision_events.storage.db:main"
 pv-sync = "palletvision_events.sync:main"
 
 [build-system]

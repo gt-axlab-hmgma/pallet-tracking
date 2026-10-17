@@ -58,7 +58,7 @@ One process per GPU, started by `torchrun`; every process trains on its own slic
 
 ```bash
 # 4 GPUs: 32 images per GPU is the paper's global batch of 128, with no accumulation
-uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli \
+uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli.train \
   data=loco_sordi data.sordi.share=0.5 data.num_workers=5 \
   train.batch_size=32 train.epochs=150 train.val_every=5 train.output_dir=runs/ddp train.resume=auto
 ```

@@ -4,15 +4,15 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from palletvision_demo.settings import Settings
-from palletvision_demo.state import (
+from palletvision_demo.live.state import (
     DemoState,
     ObjectInputError,
     Result,
     UnknownObjectError,
     ZoneInputError,
 )
-from palletvision_demo.stream import sse_lines
+from palletvision_demo.live.stream import sse_lines
+from palletvision_demo.settings import Settings
 
 
 class ZonesBody(BaseModel):

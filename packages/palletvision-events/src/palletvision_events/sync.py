@@ -6,9 +6,9 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from palletvision_events.db import connection_url
-from palletvision_events.outbox import Outbox
 from palletvision_events.sinks import EventSink
+from palletvision_events.storage.db import connection_url
+from palletvision_events.storage.outbox import Outbox
 
 SinkFactory = Callable[[], EventSink]
 

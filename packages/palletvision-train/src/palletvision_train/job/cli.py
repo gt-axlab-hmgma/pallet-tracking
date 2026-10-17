@@ -21,8 +21,8 @@ from pathlib import Path
 import torch
 
 from palletvision_model.device import resolve_device
-from palletvision_train.job import fetch
 from palletvision_train.job.bundle import build_bundle, save_config
+from palletvision_train.job.remote import fetch
 from palletvision_train.job.run import (
     DATA_DIR,
     REPO,
@@ -154,7 +154,7 @@ def size_run(job: JobConfig, args: argparse.Namespace) -> None:
         raise SystemExit(
             "--budget-hours and --train-images are for real runs, not --smoke or --synthetic"
         )
-    from palletvision_train.coco import loco_reader
+    from palletvision_train.datasets.coco import loco_reader
 
     n_real = len(loco_reader("train"))
     if budget is not None:

@@ -3,7 +3,7 @@ from typing import Protocol
 
 import numpy as np
 
-from palletvision_infer.preprocess import LetterboxMeta, restore_boxes
+from palletvision_infer.media.preprocess import LetterboxMeta, restore_boxes
 
 
 @dataclass(frozen=True)

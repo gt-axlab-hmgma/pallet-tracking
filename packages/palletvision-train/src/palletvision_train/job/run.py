@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from palletvision_train.job import fetch
+from palletvision_train.evaluation.plot import load_run, plot_run
 from palletvision_train.job.bundle import (
     build_bundle,
     environment_report,
@@ -25,7 +25,7 @@ from palletvision_train.job.bundle import (
     save_config,
     summarise_evals,
 )
-from palletvision_train.plot import load_run, plot_run
+from palletvision_train.job.remote import fetch
 
 REPO = Path(__file__).resolve().parents[5]
 DATA_DIR = REPO / "data"  # where the trainer's configs look: moving data means a symlink
@@ -112,9 +112,9 @@ def train_command(job: JobConfig) -> list[str]:
     """The trainer, alone or under torchrun (one process per GPU; batch size is per GPU)."""
     if job.gpus > 1:
         launch = [sys.executable, "-m", "torch.distributed.run", "--standalone"]
-        launch += [f"--nproc_per_node={job.gpus}", "-m", "palletvision_train.cli"]
+        launch += [f"--nproc_per_node={job.gpus}", "-m", "palletvision_train.cli.train"]
     else:
-        launch = [sys.executable, "-m", "palletvision_train.cli"]
+        launch = [sys.executable, "-m", "palletvision_train.cli.train"]
     return [*launch, *train_overrides(job)]
 
 
@@ -309,7 +309,7 @@ def measure_speed(batch_size: int, amp: bool) -> float:
     """Images per second of the training step on this machine, at the batch size and precision of
     the run (generated crowded images, so it does not include data loading)."""
     from palletvision_model.device import resolve_device
-    from palletvision_train.doctor import time_training
+    from palletvision_train.tools.doctor import time_training
 
     timing = time_training(resolve_device("auto"), 640, batch_size, 6, amp)
     return timing.images_per_second
@@ -317,7 +317,7 @@ def measure_speed(batch_size: int, amp: bool) -> float:
 
 def run_doctor(job: JobConfig) -> None:
     code = stream(
-        [sys.executable, "-m", "palletvision_train.doctor", "--batch", "8", "--steps", "4"],
+        [sys.executable, "-m", "palletvision_train.tools.doctor", "--batch", "8", "--steps", "4"],
         job.run_dir / "doctor.txt",
     )
     if code != 0:
@@ -333,7 +333,7 @@ def run_evals(job: JobConfig) -> None:
     for source, split, limit in eval_plan(job):
         out = job.run_dir / f"eval_{source}_{split}.json"
         command = [
-            sys.executable, "-m", "palletvision_train.eval_cli", "--checkpoint", str(checkpoint),
+            sys.executable, "-m", "palletvision_train.cli.eval", "--checkpoint", str(checkpoint),
             "--split", split, "--source", source, "--workers", str(job.workers), "--out", str(out),
         ]  # fmt: skip
         if limit is not None:

@@ -24,8 +24,8 @@ import torch
 from palletvision_model.config import SIZES, ModelConfig
 from palletvision_model.device import resolve_device
 from palletvision_model.yolo26 import YOLO26
-from palletvision_train.coco import CocoDetection, ImageRecord
-from palletvision_train.evaluate import evaluate
+from palletvision_train.datasets.coco import CocoDetection, ImageRecord
+from palletvision_train.evaluation.evaluate import evaluate
 
 BASE = "http://images.cocodataset.org"
 CACHE = Path(__file__).resolve().parents[1] / "data" / "coco_val_check"

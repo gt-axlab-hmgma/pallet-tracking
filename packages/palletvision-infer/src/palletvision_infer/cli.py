@@ -4,7 +4,7 @@ from pathlib import Path
 
 from palletvision_infer.backends import OnnxRuntimeBackend
 from palletvision_infer.detections import Detector
-from palletvision_infer.frame_source import parse_source
+from palletvision_infer.media.frame_source import parse_source
 from palletvision_infer.pipeline import DummyDetector, run
 
 

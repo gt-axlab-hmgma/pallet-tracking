@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from palletvision_train.cli import REPO
+from palletvision_train.cli.train import REPO
 from palletvision_train.job.cli import main
 
 
-@pytest.mark.parametrize("module", ["doctor", "eval_cli", "plot", "job", "cli"])
+@pytest.mark.parametrize(
+    "module", ["tools.doctor", "cli.eval", "evaluation.plot", "job", "cli.train"]
+)
 def test_every_stage_can_be_started_with_python_dash_m(module: str) -> None:
     """The job starts its stages this way: a module without a ``__main__`` guard does nothing."""
     done = subprocess.run(
