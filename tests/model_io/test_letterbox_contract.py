@@ -8,7 +8,7 @@ import yaml
 
 from palletvision_preprocess import PAD_VALUE, letterbox
 
-CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "model_io.yaml"
+CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "model_io.yaml"
 
 
 def test_pad_value_and_scaling_come_from_the_contract() -> None:

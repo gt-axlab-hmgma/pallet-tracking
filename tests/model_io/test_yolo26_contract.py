@@ -10,7 +10,7 @@ from palletvision_infer.backends import TorchBackend
 from palletvision_model.config import SIZES
 from palletvision_model.yolo26 import YOLO26
 
-CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "model_io.yaml"
+CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "model_io.yaml"
 
 
 def test_output_matches_the_declared_contract_shape_and_dtype() -> None:

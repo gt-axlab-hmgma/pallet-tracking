@@ -24,9 +24,9 @@ from palletvision_infer.backends import OnnxRuntimeBackend
 from palletvision_model.config import SIZES
 from palletvision_model.decode import decode_boxes, make_anchors, postprocess
 from palletvision_model.yolo26 import YOLO26
-from palletvision_train.export import export_onnx
+from palletvision_train.tools.export import export_onnx
 
-CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "model_io.yaml"
+CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "model_io.yaml"
 SIZE = 320  # same ops as 640, much faster
 # ops the Jetson Nano's TensorRT 8.2 parser should not be given (guide, step M10)
 FORBIDDEN_OPS = {"Einsum", "If", "Loop", "Scan", "Mod"}

@@ -4,7 +4,7 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
-from palletvision_events.db import connection_url, migrate
+from palletvision_events.storage.db import connection_url, migrate
 
 
 def _admin_url() -> str:
