@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from palletvision_model.config import SIZES, ModelConfig
-from palletvision_model.head import Detect, HeadBranches, final_bias, flatten_levels
+from palletvision_model.layers.head import Detect, HeadBranches, final_bias, flatten_levels
 
 
 def n_model(num_classes: int = 1) -> ModelConfig:

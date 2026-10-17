@@ -7,8 +7,8 @@ The neck sends information both ways: down to the fine maps, then back up to the
 import torch
 from torch import nn
 
-from palletvision_model.blocks import C3k2, Conv
 from palletvision_model.config import ModelConfig
+from palletvision_model.layers.blocks import C3k2, Conv
 
 
 class Neck(nn.Module):

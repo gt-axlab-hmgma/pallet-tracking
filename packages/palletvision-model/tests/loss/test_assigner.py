@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from palletvision_model.assigner import Assignment, TaskAlignedAssigner, candidate_mask
 from palletvision_model.decode import make_anchors
-from palletvision_model.iou import bbox_iou
+from palletvision_model.loss.assigner import Assignment, TaskAlignedAssigner, candidate_mask
+from palletvision_model.loss.iou import bbox_iou
 
 # An 8 x 8 grid of 8 px cells covers a 64 x 64 "image". Cell (row, col) has index row * 8 + col
 # and its centre is at (col * 8 + 4, row * 8 + 4).

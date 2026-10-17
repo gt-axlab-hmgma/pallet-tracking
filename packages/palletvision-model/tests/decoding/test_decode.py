@@ -2,7 +2,7 @@ import torch
 
 from palletvision_model.config import SIZES
 from palletvision_model.decode import decode_boxes, make_anchors
-from palletvision_model.head import Detect, flatten_levels
+from palletvision_model.layers.head import Detect, flatten_levels
 
 SIZES_640 = [(80, 80), (40, 40), (20, 20)]
 

@@ -3,8 +3,8 @@ from typing import Any, cast
 import pytest
 import torch
 
-from palletvision_model.backbone import Backbone
 from palletvision_model.config import SIZES
+from palletvision_model.layers.backbone import Backbone
 
 # (output channels, stride) of layers 0..10 for the n model, from the guide's M5 table
 N_MODEL_LAYERS = [

@@ -8,8 +8,8 @@ to the neck.
 import torch
 from torch import nn
 
-from palletvision_model.blocks import C2PSA, SPPF, C3k2, Conv
 from palletvision_model.config import ModelConfig
+from palletvision_model.layers.blocks import C2PSA, SPPF, C3k2, Conv
 
 
 class Backbone(nn.Module):

@@ -14,9 +14,9 @@ from dataclasses import fields
 import torch
 from torch import nn
 
-from palletvision_model.assigner import Assignment, TaskAlignedAssigner
 from palletvision_model.decode import decode_boxes, make_anchors
-from palletvision_model.iou import bbox_iou
+from palletvision_model.loss.assigner import Assignment, TaskAlignedAssigner
+from palletvision_model.loss.iou import bbox_iou
 
 # the model's raw output per branch: (box distances [B, A, 4], class logits [B, A, nc])
 Predictions = dict[str, tuple[torch.Tensor, torch.Tensor]]

@@ -3,11 +3,11 @@
 import torch
 from torch import nn
 
-from palletvision_model.backbone import Backbone
 from palletvision_model.config import ModelConfig
 from palletvision_model.decode import decode_boxes, make_anchors, postprocess
-from palletvision_model.head import Detect
-from palletvision_model.neck import Neck
+from palletvision_model.layers.backbone import Backbone
+from palletvision_model.layers.head import Detect
+from palletvision_model.layers.neck import Neck
 
 
 class YOLO26(nn.Module):

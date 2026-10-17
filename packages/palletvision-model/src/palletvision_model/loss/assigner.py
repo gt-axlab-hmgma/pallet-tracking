@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from palletvision_model.iou import Kind, bbox_iou
+from palletvision_model.loss.iou import Kind, bbox_iou
 
 
 @dataclass(frozen=True)

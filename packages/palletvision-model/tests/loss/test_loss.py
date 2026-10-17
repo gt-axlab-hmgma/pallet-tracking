@@ -1,11 +1,11 @@
 import pytest
 import torch
 
-from palletvision_model.assigner import TaskAlignedAssigner
 from palletvision_model.config import SIZES
 from palletvision_model.decode import decode_boxes, make_anchors
-from palletvision_model.iou import bbox_iou
-from palletvision_model.loss import DetectionLoss, Predictions, progressive_alpha
+from palletvision_model.loss.assigner import TaskAlignedAssigner
+from palletvision_model.loss.iou import bbox_iou
+from palletvision_model.loss.loss import DetectionLoss, Predictions, progressive_alpha
 from palletvision_model.yolo26 import YOLO26
 
 IMAGE = (64, 64)  # a 64 x 64 image has 8 x 8, 4 x 4 and 2 x 2 cells: 84 in all

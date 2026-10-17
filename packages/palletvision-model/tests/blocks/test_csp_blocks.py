@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch import nn
 
-from palletvision_model.blocks import C3, Bottleneck, C3k, C3k2
+from palletvision_model.layers.blocks import C3, Bottleneck, C3k, C3k2
 
 
 def conv_params(c_in: int, c_out: int, k: int, groups: int = 1) -> int:

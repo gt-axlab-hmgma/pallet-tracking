@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from palletvision_model.iou import Kind, bbox_iou, pairwise_iou
+from palletvision_model.loss.iou import Kind, bbox_iou, pairwise_iou
 
 KINDS: list[Kind] = ["iou", "giou", "diou", "ciou"]
 

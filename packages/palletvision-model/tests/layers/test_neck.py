@@ -3,10 +3,10 @@ from typing import Any, cast
 import pytest
 import torch
 
-from palletvision_model.backbone import Backbone
-from palletvision_model.blocks import Bottleneck, C3k, C3k2, PSABlock
 from palletvision_model.config import SIZES
-from palletvision_model.neck import Neck
+from palletvision_model.layers.backbone import Backbone
+from palletvision_model.layers.blocks import Bottleneck, C3k, C3k2, PSABlock
+from palletvision_model.layers.neck import Neck
 
 
 def build(size: str = "n") -> tuple[Backbone, Neck]:

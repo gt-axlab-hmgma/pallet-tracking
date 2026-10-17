@@ -3,7 +3,7 @@ from typing import Any, cast
 import torch
 from torch import nn
 
-from palletvision_model.blocks import C2PSA, SPPF, Attention, PSABlock
+from palletvision_model.layers.blocks import C2PSA, SPPF, Attention, PSABlock
 
 
 def conv_params(c_in: int, c_out: int, k: int, groups: int = 1) -> int:

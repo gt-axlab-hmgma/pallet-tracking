@@ -10,8 +10,8 @@ import math
 import torch
 from torch import nn
 
-from palletvision_model.blocks import Conv, DWConv
 from palletvision_model.config import ModelConfig
+from palletvision_model.layers.blocks import Conv, DWConv
 
 
 def flatten_levels(maps: list[torch.Tensor]) -> torch.Tensor:

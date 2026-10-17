@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from palletvision_model.blocks import Conv
+from palletvision_model.layers.blocks import Conv
 
 
 @pytest.mark.parametrize(("k", "s", "out_hw"), [(1, 1, 16), (3, 1, 16), (3, 2, 8), (1, 2, 8)])
