@@ -19,14 +19,14 @@ dependencies = [
 ]
 
 [project.scripts]
-pv-train = "palletvision_train.cli:main"
-pv-export = "palletvision_train.export:main"
-pv-overfit = "palletvision_train.overfit_cli:main"
-pv-eval = "palletvision_train.eval_cli:main"
-pv-plot = "palletvision_train.plot:main"
-pv-doctor = "palletvision_train.doctor:main"
+pv-train = "palletvision_train.cli.train:main"
+pv-export = "palletvision_train.tools.export:main"
+pv-overfit = "palletvision_train.cli.overfit:main"
+pv-eval = "palletvision_train.cli.eval:main"
+pv-plot = "palletvision_train.evaluation.plot:main"
+pv-doctor = "palletvision_train.tools.doctor:main"
 pv-job = "palletvision_train.job.cli:main"
-pv-convert = "palletvision_train.convert:main"
+pv-convert = "palletvision_train.checkpoints.convert:main"
 
 [build-system]
 requires = ["hatchling"]

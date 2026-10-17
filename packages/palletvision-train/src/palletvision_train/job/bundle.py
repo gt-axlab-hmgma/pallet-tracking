@@ -17,7 +17,7 @@ from typing import Any
 import torch
 
 from palletvision_model.device import resolve_device
-from palletvision_train.doctor import environment, warnings_for
+from palletvision_train.tools.doctor import environment, warnings_for
 
 FILES = (
     "best.pt", "last.pt", "metrics.jsonl", "curves.png", "train.log", "eval.log", "doctor.txt",
