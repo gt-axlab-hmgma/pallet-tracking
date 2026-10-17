@@ -372,8 +372,8 @@ No confidence threshold inside the model (the repo's `decode` applies `conf` out
 **Test:** counts match the annotation file; a known image's boxes round-trip; `class_map` honoured.
 
 ### Step D2. Letterbox (must match inference exactly)
-**Spec** [S]: `r = S / max(h, w)`; resize to `(round(w·r), round(h·r))` (bilinear); centre-pad to `S×S` with value 114; padding offsets are `pad_x = (S − new_w)/2`, `pad_y = (S − new_h)/2`, **floored to int for placement** (this is what `palletvision_infer.preprocess.letterbox` does); boxes: `x·r + pad_x`, `y·r + pad_y` using the same floored pads.
-**Test:** **parity test** against `letterbox` from `palletvision_infer.preprocess` on random images: identical pixels and identical box mapping (`restore_boxes` inverts it). A mismatch here silently costs accuracy.
+**Spec** [S]: `r = S / max(h, w)`; resize to `(round(w·r), round(h·r))` (bilinear); centre-pad to `S×S` with value 114; padding offsets are `pad_x = (S − new_w)/2`, `pad_y = (S − new_h)/2`, **floored to int for placement** (this is what `palletvision_infer.media.preprocess.letterbox` does); boxes: `x·r + pad_x`, `y·r + pad_y` using the same floored pads.
+**Test:** **parity test** against `letterbox` from `palletvision_infer.media.preprocess` on random images: identical pixels and identical box mapping (`restore_boxes` inverts it). A mismatch here silently costs accuracy.
 **Note:** the model package must not import cv2/numpy. Keep the training letterbox in `palletvision-train` and guard it with the parity test.
 
 ### Step D3. Augmentation (training only)
@@ -385,7 +385,7 @@ Order [S/D]: mosaic (probability 1.0 until the last epochs) → random affine �
 - **Mosaic:** pick 4 images, scale each, place them around a random centre `(xc, yc)` uniform in `[0.5S, 1.5S]` on a `2S×2S` canvas, then the affine step crops/rescales the canvas back to `S×S`. Concatenate and clip all labels. **Turn mosaic off for the final ~10 epochs** so the model finishes on realistic frames.
 - No augmentation at validation: plain letterbox only.
 - **Report values (Table S3, n):** mosaic 1.0, mixup 0, scale 0.5, fliplr 0.5, translate 0.1, degrees 0, shear 0, HSV 0.02/0.7/0.4, `close_mosaic` 8. The report also lists copy-paste 0.1; copy-paste needs an object mask for every instance, which LOCO and SORDI do not have, so it is not used. Mixup is 0 for the n model.
-- **Built:** `palletvision_train/augment.py` (`AugmentedDataset`, configured by `data.augment` in `configs/data/loco.yaml`). Mosaic boxes are cut to the part of each tile that is visible, so a box never covers a neighbour's pixels; a box survives the final crop only if it is wider and taller than 2 px, more than 10% of the whole object is still in view, and its aspect ratio is under 100. Mosaic partners are drawn with the epoch's real/synthetic mixture. The trainer calls `on_epoch_start` so mosaic closes for the last epochs even with persistent loader workers.
+- **Built:** `palletvision_train/augmentation/augment.py` (`AugmentedDataset`, configured by `data.augment` in `configs/data/loco.yaml`). Mosaic boxes are cut to the part of each tile that is visible, so a box never covers a neighbour's pixels; a box survives the final crop only if it is wider and taller than 2 px, more than 10% of the whole object is still in view, and its aspect ratio is under 100. Mosaic partners are drawn with the epoch's real/synthetic mixture. The trainer calls `on_epoch_start` so mosaic closes for the last epochs even with persistent loader workers.
 **Test:** boxes still tightly enclose the objects after each transform (draw them); a zero-strength configuration is the identity; the filter drops degenerate boxes; seeded augmentations are reproducible.
 **Pitfalls:** box clipping at the image border distorting aspect ratio; flipping boxes incorrectly (`x1' = W − x2`); applying colour jitter to the pad region.
 
@@ -397,7 +397,7 @@ Pad labels to the batch max `M`; produce `gt_labels [B,M,1]`, `gt_boxes [B,M,4]`
 - Sampling: a weighted sampler giving real images the majority share of each epoch (for example 70% LOCO / 30% SORDI) rather than concatenating datasets (SORDI is far larger).
 - **Pick `best.pt` on the real LOCO validation split (sub-set 1).** SORDI has its own 70/15/15 split (hash of the image name) and is scored alongside, never pooled with the real number. LOCO test is sub-set 4, kept for the final score (issue #71).
 - Run LOCO-only and LOCO+SORDI with identical settings and compare held-out LOCO mAP (section 8).
-- **Built:** `configs/data/loco_sordi.yaml` (`data=loco_sordi`), `palletvision_train/sordi.py` (reads a scene folder, `images/<n>.jpg` plus `labels/json/<n>.json`, mapping `pallet` and `stillage` to `pallet` as LOCO does) and `MixedSampler`, which makes each epoch every real image once plus a fresh random draw of synthetic images (default share 0.3).
+- **Built:** `configs/data/loco_sordi.yaml` (`data=loco_sordi`), `palletvision_train/datasets/sordi.py` (reads a scene folder, `images/<n>.jpg` plus `labels/json/<n>.json`, mapping `pallet` and `stillage` to `pallet` as LOCO does) and `MixedSampler`, which makes each epoch every real image once plus a fresh random draw of synthetic images (default share 0.3).
 
 ---
 
@@ -467,7 +467,7 @@ From `design.md`: load the stage-1 checkpoint, keep backbone, neck and box branc
 The branch-weight schedule is specified in T3 [P: Eq. 2-3]. The other description sometimes seen (moving weight from classification to box loss) is not what the YOLO26 report describes.
 
 ### O3. MuSGD: now part of the baseline (see R1)
-The Muon update, as implemented in `palletvision_train/optim.py` after Jordan's public reference and Ultralytics' MuSGD (the report gives only the idea and the mix weights):
+The Muon update, as implemented in `palletvision_train/training/optim.py` after Jordan's public reference and Ultralytics' MuSGD (the report gives only the idea and the mix weights):
 - For each multi-dimensional weight, keep a running average of the gradient `a ← β·a + (1−β)·g` and form the Nesterov blend `u = (1−β)·g + β·a`. Flatten `u` to `[c_out, c_in·k·k]` and orthogonalise it with 5 Newton-Schulz iterations: normalise by the Frobenius norm, transpose if tall, then `X ← aX + (bA + cA²)X` with `A = XXᵀ` and `(a, b, c) = (3.4445, −4.7750, 2.0315)`. The result has singular values roughly between 0.5 and 1.5, not exactly 1. Scale by `sqrt(max(1, rows/cols))` of the last two dimensions of the original weight (1 for the square kernels here).
 - Apply `−lr · w_muon · scale · NS(u)` (no weight decay), then the ordinary Nesterov-SGD step with weight decay at `lr · w_sgd` on the weights as they stand after the Muon part. Biases and norm scales get plain SGD at the full `lr`.
 - `w_muon = 0.45`, `w_sgd = 0.55` for n [P: Table S4]. With `w_muon = 0` and `w_sgd = 1` it is exactly PyTorch SGD, which is how the repo tests it.

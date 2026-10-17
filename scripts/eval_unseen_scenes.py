@@ -8,10 +8,10 @@ from pathlib import Path
 
 import yaml
 
-from palletvision_train.coco import REPO, CocoDetection
-from palletvision_train.eval_cli import load_model
-from palletvision_train.evaluate import evaluate
-from palletvision_train.sordi import sordi_records, subsample
+from palletvision_train.cli.eval import load_model
+from palletvision_train.datasets.coco import REPO, CocoDetection
+from palletvision_train.datasets.sordi import sordi_records, subsample
+from palletvision_train.evaluation.evaluate import evaluate
 
 cfg = yaml.safe_load((REPO / "configs/data/loco_sordi.yaml").read_text())["sordi"]
 classes = yaml.safe_load((REPO / "contracts/classes.yaml").read_text())["stage1"]

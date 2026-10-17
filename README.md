@@ -316,7 +316,7 @@ Prints what PyTorch sees (version, CUDA build, GPU, memory, bfloat16 support), w
 ### Training on several GPUs
 
 ```bash
-uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli data=loco_sordi \
+uv run torchrun --standalone --nproc_per_node=4 -m palletvision_train.cli.train data=loco_sordi \
   train.batch_size=32 data.num_workers=5 train.val_every=5 train.resume=auto
 ```
 
