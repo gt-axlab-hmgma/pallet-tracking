@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from palletvision_infer.frame_source import FrameSource, parse_source
+from palletvision_infer.media.frame_source import FrameSource, parse_source
 
 
 def test_parse_source_digits_is_camera_index() -> None:

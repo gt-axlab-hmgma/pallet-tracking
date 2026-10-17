@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from palletvision_infer.preprocess import letterbox, restore_boxes
+from palletvision_infer.media.preprocess import letterbox, restore_boxes
 
 
 def test_letterbox_shape_range_and_padding() -> None:

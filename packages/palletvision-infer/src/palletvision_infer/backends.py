@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from palletvision_infer.detections import Detections, decode
-from palletvision_infer.preprocess import letterbox
+from palletvision_infer.media.preprocess import letterbox
 
 
 class TorchBackend:

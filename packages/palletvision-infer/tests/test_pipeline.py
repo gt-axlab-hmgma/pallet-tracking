@@ -7,7 +7,7 @@ import pytest
 
 from palletvision_infer.cli import main
 from palletvision_infer.detections import Detections
-from palletvision_infer.overlay import draw
+from palletvision_infer.media.overlay import draw
 from palletvision_infer.pipeline import DummyDetector, run
 
 
