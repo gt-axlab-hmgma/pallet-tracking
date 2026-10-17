@@ -2,9 +2,9 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from palletvision_events.outbox import Outbox
 from palletvision_events.record import EventFactory, ZoneEvent
 from palletvision_events.sinks import EventSink
+from palletvision_events.storage.outbox import Outbox
 from palletvision_zones.engine import Transition
 
 T0 = datetime(2026, 10, 20, 14, 0, 0, tzinfo=UTC)

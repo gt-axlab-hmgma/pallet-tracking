@@ -6,9 +6,9 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from palletvision_events.outbox import Outbox
 from palletvision_events.record import EventFactory, ZoneEvent
 from palletvision_events.sinks_postgres import PostgresSink
+from palletvision_events.storage.outbox import Outbox
 from palletvision_events.sync import Syncer, backoff_delay
 from palletvision_zones.engine import Transition
 

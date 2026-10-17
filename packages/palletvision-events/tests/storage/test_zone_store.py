@@ -3,7 +3,7 @@ from dataclasses import replace
 import psycopg
 import pytest
 
-from palletvision_events.zone_store import ZoneConfigConflict, ZoneConfigStore
+from palletvision_events.storage.zone_store import ZoneConfigConflict, ZoneConfigStore
 from palletvision_zones.config import Zone, ZoneConfig
 
 V1 = ZoneConfig(

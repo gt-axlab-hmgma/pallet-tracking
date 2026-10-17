@@ -1,6 +1,6 @@
 import psycopg
 
-from palletvision_events.db import applied_versions, migrate, pending_versions
+from palletvision_events.storage.db import applied_versions, migrate, pending_versions
 
 
 def tables(conn: psycopg.Connection) -> set[str]:
