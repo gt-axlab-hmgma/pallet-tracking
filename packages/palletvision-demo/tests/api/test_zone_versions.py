@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from palletvision_demo.app import create_app
 from palletvision_demo.settings import Settings
-from palletvision_events.zone_store import ZoneConfigStore
+from palletvision_events.storage.zone_store import ZoneConfigStore
 from palletvision_zones.config import Zone, ZoneConfig
 
 ZONE_A = {"id": "zone_a", "polygon": [[100, 100], [500, 120], [480, 400], [80, 380]]}

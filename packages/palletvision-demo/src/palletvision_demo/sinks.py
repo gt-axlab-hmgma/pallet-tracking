@@ -4,12 +4,12 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from palletvision_demo.settings import Settings
-from palletvision_events.db import connection_url
-from palletvision_events.outbox import Outbox
 from palletvision_events.record import ZoneEvent
 from palletvision_events.sinks import EventSink, JsonlSink, StdoutSink
 from palletvision_events.sinks_postgres import PostgresSink
-from palletvision_events.zone_store import ZoneConfigStore
+from palletvision_events.storage.db import connection_url
+from palletvision_events.storage.outbox import Outbox
+from palletvision_events.storage.zone_store import ZoneConfigStore
 from palletvision_zones.config import ZoneConfig
 
 

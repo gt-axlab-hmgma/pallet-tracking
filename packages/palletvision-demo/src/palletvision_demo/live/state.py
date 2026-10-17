@@ -4,10 +4,10 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-from palletvision_demo.frame import encode_jpeg, load_reference_frame
+from palletvision_demo.live.frame import encode_jpeg, load_reference_frame
+from palletvision_demo.live.stream import EventBus
 from palletvision_demo.settings import Settings
 from palletvision_demo.sinks import build_config_store, build_sink
-from palletvision_demo.stream import EventBus
 from palletvision_events.record import EventFactory, describe
 from palletvision_zones.config import (
     ConfigError,

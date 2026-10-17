@@ -6,8 +6,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from palletvision_demo.app import create_app
+from palletvision_demo.live.stream import EventBus, sse_lines
 from palletvision_demo.settings import Settings
-from palletvision_demo.stream import EventBus, sse_lines
 
 ZONE = {"id": "z", "polygon": [[0, 0], [200, 0], [200, 200], [0, 200]]}
 

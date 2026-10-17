@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from palletvision_infer.frame_source import FrameSource, parse_source
+from palletvision_infer.media.frame_source import FrameSource, parse_source
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 

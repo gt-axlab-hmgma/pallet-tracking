@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator
 from palletvision_demo.app import create_app
 from palletvision_demo.settings import Settings
 
-SCHEMA = Path(__file__).resolve().parents[3] / "contracts" / "events.schema.json"
+SCHEMA = Path(__file__).resolve().parents[4] / "contracts" / "events.schema.json"
 ZONE_1 = {"id": "zone_1", "polygon": [[100, 100], [500, 120], [480, 400], [80, 380]]}  # slanted
 ZONE_2 = {"id": "zone_2", "polygon": [[700, 100], [1000, 100], [1000, 400], [700, 400]]}
 
