@@ -4,8 +4,8 @@ Pallet detection, tracking and zone analytics for HMGMA. A clean-room PyTorch de
 
 **Status**
 
-- Working: training, ONNX export, benchmarking and video/webcam inference with a placeholder `TinyDetector`; the zone engine; the event pipeline (local queue, Postgres); and a browser demo where you draw zones and drag mock bounding boxes across them.
-- Not yet: the real YOLO26 detector (M1), a tracker fed by real detections, the HTTP ingest service for many Jetsons, and the C++/TensorRT runtime.
+- Working: training, ONNX export, benchmarking and video/webcam inference; the ByteTrack tracker; the zone engine; the event pipeline (local queue, Postgres); and a browser demo where you draw zones and either drag mock bounding boxes across them or play a video through the detector and tracker (see [live tracking](#live-tracking-a-video-through-detector-tracker-and-zones)).
+- Not yet: the HTTP ingest service for many Jetsons, and the C++/TensorRT runtime.
 
 ## Licensing
 
@@ -141,6 +141,39 @@ uv run pv-demo --sink postgres --camera-id cam01 --device-id nano-01
 | `--db-url` | from `.env` | Postgres URL for `--sink postgres`. |
 | `--hysteresis` | `1` | Consecutive frames needed to confirm a move. `1` reacts instantly; real video would use about `3` so one noisy frame cannot create events. |
 | `--host`, `--port` | `127.0.0.1`, `8000` | Where the API listens. If you change the port, start the UI with `PV_API_URL=http://127.0.0.1:<port>`. |
+
+### Live tracking: a video through detector, tracker and zones
+
+Give `pv-demo` an ONNX model and a video and the mock objects are replaced by real tracks: each frame is detected, the detections go to ByteTrack (`palletvision-track`), and the tracks seen in that frame move through the zones you draw. Events have `source: model`. The browser shows the video behind the zones, with a track id on every box.
+
+```bash
+# one-off: turn a checkpoint into ONNX (the real model; `pv-export` still exports the placeholder)
+uv run python - <<'PY'
+from pathlib import Path
+from palletvision_train.cli.eval import load_model
+from palletvision_train.tools.export import export_onnx
+model, _, size = load_model(Path("weights/pallet_yolo26n_coco-init_loco-sordi-mixed.pt"))
+export_onnx(model, "runs/export/pallet_yolo26n.onnx", size)
+PY
+
+uv run pv-demo --source data/infer/your_clip.mp4 --weights runs/export/pallet_yolo26n.onnx
+npm run dev --prefix apps/demo-ui          # in a second terminal, then open http://localhost:3000
+```
+
+Draw zones as usual (press `Z`). The video loops, and at each restart the tracker and all open visits are reset (exit events are logged). Notes:
+
+- **A hidden pallet keeps its zone.** Only tracks seen in the current frame move through zones. A pallet that is hidden (behind a forklift, say) stays "inside" until the tracker gives up on it, `--lost-seconds` after it was last seen, and only then is an exit logged.
+- **The detector must keep low-score boxes.** ByteTrack's second round uses them, so `--conf` defaults to `0.1`, not the `0.25` of `pv-infer`.
+- **IDs are not appearance-based.** Tracking is by box overlap and motion only, so two pallets that cross paths can swap ids, and a pallet hidden longer than `--lost-seconds` comes back with a new one.
+- **One class for now.** Every track is `pallet_unknown`; class voting is not built yet.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--weights` | none | ONNX model. With it, `--source` must be a video and the demo runs live. |
+| `--fps` | `10` | Frames per second the detector and tracker run at (a file is thinned to this). |
+| `--conf` | `0.1` | Lowest detection score kept. |
+| `--lost-seconds` | `5` | How long a hidden pallet keeps its id. |
+| `--no-loop` | loop | Stop at the end of the video instead of restarting. |
 
 If Postgres is down while using `--sink postgres`, dragging keeps working and the event log shows a "not stored" warning, but those events are lost. To avoid losing events, use `--sink outbox` and run `pv-sync` (below).
 
@@ -446,6 +479,7 @@ On macOS, grant camera access to your terminal (System Settings > Privacy & Secu
 | `packages/palletvision-train` | Trainer, datasets, ONNX export (`pv-train`, `pv-export`). |
 | `packages/palletvision-preprocess` | Letterbox shared by training and inference, so both see identical pixels. |
 | `packages/palletvision-infer` | Frame source, backends (torch, onnxruntime), overlay, benchmark (`pv-infer`, `pv-bench`). |
+| `packages/palletvision-track` | The ByteTrack tracker: Kalman filter, IoU matching, track lifecycle. numpy and scipy only. |
 | `packages/palletvision-zones` | Zone geometry and the enter/exit engine. Plain Python with no heavy dependencies, written to be ported to C++. |
 | `packages/palletvision-events` | Event records, sinks (jsonl, SQLite outbox, Postgres), migrations, `pv-db` and `pv-sync`. |
 | `packages/palletvision-demo` | The demo API (`pv-demo`). Kept separate so FastAPI never ships to a Jetson. |

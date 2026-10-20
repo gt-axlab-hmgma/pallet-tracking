@@ -52,5 +52,5 @@ Conventional commits, pre-commit hooks, strict typing (it caught 32 type errors 
 - **The model is untrained.** There are no accuracy numbers (no mAP), and no loss, assigner or data reader yet. The NMS-free behaviour appears only after training with one-to-one assignment.
 - **Nothing has been built on a Jetson.** The ONNX graph is checked against TensorRT's known limits, but no TensorRT engine has been built yet.
 - **Parity tolerance is loose for an untrained network** (about 2e-2 of the value range). Tighter numbers apply to a trained model.
-- **Not built yet:** the ByteTrack tracker, the HTTP ingest service, the C++ runtime.
+- **Not built yet:** the HTTP ingest service, the C++ runtime. The ByteTrack tracker exists (`palletvision-track`) and drives the browser demo, but is not on a Jetson.
 - **How it was built:** the recent commits were pair-programmed with Claude Code (see the `Co-Authored-By` trailers).
