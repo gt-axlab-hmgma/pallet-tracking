@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from palletvision_model.tiny import TinyDetector
+from palletvision_train.checkpoints.model import load_model
 
 OPSET = 13  # contracts/model_io.yaml: TensorRT 8.2 parser limit on the Jetson Nano
 
@@ -25,10 +25,12 @@ def export_onnx(model: nn.Module, path: Path | str, size: int = 640) -> Path:
 def main(argv: Sequence[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="pv-export", description="Export a checkpoint to ONNX.")
     p.add_argument("--checkpoint", type=Path, required=True)
-    p.add_argument("--size", type=int, default=640)
+    p.add_argument(
+        "--size", type=int, help="input size (default: the one the checkpoint was trained at)"
+    )
     p.add_argument("--out", type=Path, default=Path("runs/export/model.onnx"))
     args = p.parse_args(argv)
-    # TinyDetector is a placeholder until the real detector exists in palletvision-model.
-    model = TinyDetector(input_size=args.size)
-    model.load_state_dict(torch.load(args.checkpoint, map_location="cpu")["model"])
-    print(export_onnx(model, args.out, args.size))
+    model, where, trained_size = load_model(args.checkpoint)
+    size = args.size or trained_size
+    print(f"model: epoch {where['epoch']}, {where['steps']} steps, input {size}x{size}")
+    print(export_onnx(model, args.out, size))
