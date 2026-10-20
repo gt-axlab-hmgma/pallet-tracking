@@ -60,12 +60,8 @@ def test_state_starts_empty(tmp_path: Path) -> None:
     assert state["image_size"] == [1280, 720]
     assert state["zones"] == []
     assert state["objects"] == []
-    assert state["object_types"] == [
-        "pallet_type_a",
-        "pallet_type_b",
-        "pallet_type_c",
-        "pallet_unknown",
-    ]
+    assert state["source"] is None
+    assert state["can_play"] is False  # no --weights
     assert state["sink"] == "jsonl"
 
 

@@ -12,9 +12,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         prog="pv-demo", description="Start the demo API (the UI runs separately)."
     )
-    p.add_argument(
-        "--source", help="reference frame (image, video or camera index), or the video to track"
-    )
+    p.add_argument("--source", help="start on this video file, camera index or stream URL")
     p.add_argument("--camera-id", default="cam01")
     p.add_argument("--device-id", default="demo-laptop")
     p.add_argument("--sink", choices=["jsonl", "postgres", "outbox", "stdout"], default="jsonl")
@@ -22,9 +20,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     p.add_argument("--outbox", type=Path, default=Path("runs/outbox.db"))
     p.add_argument("--db-url", default=None, help="Postgres URL (default: from PV_DB_* / .env)")
     p.add_argument("--hysteresis", type=int, default=1, help="frames needed to confirm a move")
-    live = p.add_argument_group("live tracking", "run a video through the detector and tracker")
+    live = p.add_argument_group("live tracking", "load a video or camera in the UI and track it")
+    live.add_argument("--weights", type=Path, help="ONNX model; needed to play a video or camera")
     live.add_argument(
-        "--weights", type=Path, help="ONNX model; with --source video, tracks drive the zones"
+        "--upload-dir",
+        type=Path,
+        default=Path("runs/demo/uploads"),
+        help="where videos uploaded from the UI are kept",
     )
     live.add_argument("--fps", type=float, default=10.0, help="frames per second to process")
     live.add_argument("--conf", type=float, default=0.1, help="lowest detection score kept")
@@ -45,6 +47,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         db_url=args.db_url,
         hysteresis_frames=args.hysteresis,
         weights=args.weights,
+        upload_dir=args.upload_dir,
         fps=args.fps,
         conf=args.conf,
         lost_seconds=args.lost_seconds,

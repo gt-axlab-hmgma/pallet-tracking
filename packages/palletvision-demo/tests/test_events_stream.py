@@ -6,8 +6,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from palletvision_demo.app import create_app
+from palletvision_demo.live.state import DemoState
 from palletvision_demo.live.stream import EventBus, sse_lines
 from palletvision_demo.settings import Settings
+from palletvision_zones.engine import Track
 
 ZONE = {"id": "z", "polygon": [[0, 0], [200, 0], [200, 200], [0, 200]]}
 
@@ -20,10 +22,9 @@ def make_client(tmp_path: Path) -> TestClient:
 
 def test_events_endpoint_returns_recent_events_oldest_first(tmp_path: Path) -> None:
     c = make_client(tmp_path)
-    oid = c.post(
-        "/api/objects", json={"object_type": "pallet_unknown", "box": [50, 50, 90, 90]}
-    ).json()["object"]["id"]
-    c.put(f"/api/objects/{oid}", json={"box": [500, 500, 540, 540]})
+    state: DemoState = c.app.state.demo  # type: ignore[attr-defined]
+    state.apply_tracks([Track(1, "pallet_unknown", (50.0, 50.0, 90.0, 90.0))], [])
+    state.apply_tracks([Track(1, "pallet_unknown", (500.0, 500.0, 540.0, 540.0))], [])
     events = c.get("/api/events").json()["events"]
     assert [(e["event_type"], e["message"]) for e in events] == [
         ("enter", "object of type pallet_unknown joined zone z"),

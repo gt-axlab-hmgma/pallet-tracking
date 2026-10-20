@@ -1,8 +1,9 @@
-import math
 import threading
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
 
 from palletvision_demo.live.frame import encode_jpeg, load_reference_frame
 from palletvision_demo.live.stream import EventBus
@@ -18,34 +19,26 @@ from palletvision_zones.config import (
 from palletvision_zones.engine import Track, Transition, ZoneEngine
 from palletvision_zones.geometry import PolygonError
 
-DEFAULT_OBJECT_TYPES = ["pallet_type_a", "pallet_type_b", "pallet_type_c", "pallet_unknown"]
+# Stage 1 has one pallet class and the tracker ignores classes, so every track is the same type.
+OBJECT_TYPE = "pallet_unknown"
 
 
 class ZoneInputError(ValueError):
     """The submitted zones are invalid; the message is safe to show to the user."""
 
 
-class ObjectInputError(ValueError):
-    """The submitted object is invalid; the message is safe to show to the user."""
-
-
-class UnknownObjectError(KeyError):
-    pass
-
-
 Box = tuple[float, float, float, float]
 
 
 @dataclass
-class MockObject:
+class TrackedBox:
     id: int
-    object_type: str
     box: Box
 
 
 @dataclass
 class Result:
-    """What one user action caused: the events it produced and whether storing them failed."""
+    """What one action caused: the events it produced and whether storing them failed."""
 
     events: list[dict[str, Any]]
     sink_error: str | None = None
@@ -57,21 +50,20 @@ class DemoState:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        frame = load_reference_frame(settings.source)
-        self.frame_jpeg = encode_jpeg(frame)
-        self.image_size = (int(frame.shape[1]), int(frame.shape[0]))
-        self.warnings: list[str] = []
-        self.object_types = list(DEFAULT_OBJECT_TYPES)
         self.lock = threading.RLock()
-        self.objects: dict[int, MockObject] = {}
+        self.warnings: list[str] = []
+        self.objects: dict[int, TrackedBox] = {}  # tracks seen in the latest frame
         self.bus = EventBus()
-        self.live = settings.weights is not None  # tracks come from a video, not from the mouse
         self._known_ids: set[int] = set()  # track ids the zone engine holds state for
+        self.source: dict[str, Any] | None = None  # what is playing, for the UI
         self._frame_cond = threading.Condition()
         self._live_jpeg: bytes | None = None
         self._live_seq = 0
         self.log: deque[dict[str, Any]] = deque(maxlen=500)
-        self._next_id = 1
+        self.frame_version = 0
+        self.frame_jpeg = b""
+        self.image_size = (0, 0)
+        self.set_reference(load_reference_frame(None))  # a placeholder until a source is loaded
         self.sink, start_seq, sink_warnings = build_sink(settings)
         self.config_store = build_config_store(settings)
         self.warnings.extend(sink_warnings)
@@ -80,7 +72,7 @@ class DemoState:
         self.factory = EventFactory(
             settings.device_id,
             settings.camera_id,
-            "model" if self.live else "mock",
+            "model",
             config_version=self.config.version,
             start_seq=start_seq,
         )
@@ -101,14 +93,23 @@ class DemoState:
                 "will not be saved until it is."
             )
             return empty
-        if config is None:
-            return empty
-        if config.image_size != self.image_size:
-            self.warnings.append(
-                f"Saved zones were drawn on a {config.image_size[0]}x{config.image_size[1]} "
-                f"frame but this frame is {self.image_size[0]}x{self.image_size[1]}."
-            )
-        return config
+        return config or empty
+
+    def set_reference(self, frame: np.ndarray) -> None:
+        """The frame zones are drawn on: a placeholder, or the first frame of the source."""
+        with self.lock:
+            self.frame_jpeg = encode_jpeg(frame)
+            self.image_size = (int(frame.shape[1]), int(frame.shape[0]))
+            self.frame_version += 1
+
+    def set_source(self, kind: str, name: str, state: str, message: str | None = None) -> None:
+        """What the UI shows as the current source: ``state`` is playing, ended or error."""
+        with self.lock:
+            self.source = {"kind": kind, "name": name, "state": state, "message": message}
+
+    def clear_source(self) -> None:
+        with self.lock:
+            self.source = None
 
     def replace_zones(self, raw_zones: list[dict[str, Any]]) -> Result:
         """Validate and save a new zone list (new config version). Raises ZoneInputError."""
@@ -135,7 +136,7 @@ class DemoState:
             return self._emit(self.engine.update(self._tracks()), store_config=True)
 
     def _tracks(self) -> list[Track]:
-        return [Track(o.id, o.object_type, o.box) for o in self.objects.values()]
+        return [Track(o.id, OBJECT_TYPE, o.box) for o in self.objects.values()]
 
     def _emit(self, transitions: list[Transition], store_config: bool = False) -> Result:
         events = [self.factory.make(t) for t in transitions]
@@ -157,9 +158,7 @@ class DemoState:
         last confirmed in, and leaves them (an exit event) only once the tracker removes it.
         """
         with self.lock:
-            self.objects = {
-                t.track_id: MockObject(t.track_id, t.object_type, t.box) for t in tracks
-            }
+            self.objects = {t.track_id: TrackedBox(t.track_id, t.box) for t in tracks}
             transitions = self.engine.update(tracks)
             self._known_ids.update(t.track_id for t in tracks)
             for track_id in removed_ids:
@@ -198,66 +197,28 @@ class DemoState:
         with self.lock:
             return list(self.log)[-limit:] if limit > 0 else []
 
-    def _check_type(self, object_type: str) -> None:
-        if object_type not in self.object_types:
-            raise ObjectInputError(f"object_type must be one of {', '.join(self.object_types)}")
-
-    @staticmethod
-    def _check_box(raw: list[float]) -> Box:
-        if len(raw) != 4 or not all(math.isfinite(v) for v in raw):
-            raise ObjectInputError("box must be four finite numbers [x1, y1, x2, y2]")
-        x1, y1, x2, y2 = (float(v) for v in raw)
-        if x2 <= x1 or y2 <= y1:
-            raise ObjectInputError("box must have x2 > x1 and y2 > y1")
-        return (x1, y1, x2, y2)
-
-    def add_object(self, object_type: str, raw_box: list[float]) -> tuple[MockObject, Result]:
-        with self.lock:
-            self._check_type(object_type)
-            obj = MockObject(self._next_id, object_type, self._check_box(raw_box))
-            self._next_id += 1
-            self.objects[obj.id] = obj
-            return obj, self._emit(self.engine.update(self._tracks()))
-
-    def update_object(
-        self, object_id: int, raw_box: list[float] | None, object_type: str | None
-    ) -> tuple[MockObject, Result]:
-        with self.lock:
-            obj = self.objects.get(object_id)
-            if obj is None:
-                raise UnknownObjectError(object_id)
-            if object_type is not None:
-                self._check_type(object_type)
-                obj.object_type = object_type
-            if raw_box is not None:
-                obj.box = self._check_box(raw_box)
-            return obj, self._emit(self.engine.update(self._tracks()))
-
-    def delete_object(self, object_id: int) -> Result:
-        with self.lock:
-            if self.objects.pop(object_id, None) is None:
-                raise UnknownObjectError(object_id)
-            return self._emit(self.engine.remove_track(object_id))
-
-    def object_dict(self, obj: MockObject) -> dict[str, Any]:
-        return {
-            "id": obj.id,
-            "object_type": obj.object_type,
-            "box": list(obj.box),
-            "zones": self.engine.zones_of(obj.id),
-        }
+    def object_dict(self, obj: TrackedBox) -> dict[str, Any]:
+        return {"id": obj.id, "box": list(obj.box), "zones": self.engine.zones_of(obj.id)}
 
     def snapshot(self) -> dict[str, Any]:
-        cfg = config_to_dict(self.config)
-        return {
-            "camera_id": self.settings.camera_id,
-            "device_id": self.settings.device_id,
-            "image_size": list(self.image_size),
-            "live": self.live,
-            "version": self.config.version,
-            "zones": cfg["zones"],
-            "objects": [self.object_dict(o) for o in self.objects.values()],
-            "object_types": self.object_types,
-            "sink": self.settings.sink,
-            "warnings": self.warnings,
-        }
+        with self.lock:
+            cfg = config_to_dict(self.config)
+            warnings = list(self.warnings)
+            if self.config.zones and self.config.image_size != self.image_size:
+                (zw, zh), (w, h) = self.config.image_size, self.image_size
+                warnings.append(
+                    f"Zones were drawn on a {zw}x{zh} frame but the current frame is {w}x{h}."
+                )
+            return {
+                "camera_id": self.settings.camera_id,
+                "device_id": self.settings.device_id,
+                "image_size": list(self.image_size),
+                "frame_version": self.frame_version,
+                "can_play": self.settings.weights is not None,
+                "source": self.source,
+                "version": self.config.version,
+                "zones": cfg["zones"],
+                "objects": [self.object_dict(o) for o in self.objects.values()],
+                "sink": self.settings.sink,
+                "warnings": warnings,
+            }
