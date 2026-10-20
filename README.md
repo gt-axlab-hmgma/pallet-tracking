@@ -67,16 +67,10 @@ Diagrams of both setups, including what is not built yet, are in [docs/post-infe
 
 ## The zone demo: run it
 
-You run two programs, the API and the UI, plus optionally the database. Use one terminal each, all from the repo root. The API needs the detector as an ONNX file. To make one from the model in use (one-off; `pv-export` still exports the placeholder model):
+You run two programs, the API and the UI, plus optionally the database. Use one terminal each, all from the repo root. The API needs the detector as an ONNX file. To make one from the model in use:
 
 ```bash
-uv run python - <<'PY'
-from pathlib import Path
-from palletvision_train.cli.eval import load_model
-from palletvision_train.tools.export import export_onnx
-model, _, size = load_model(Path("weights/pallet_yolo26n_coco-init_loco-sordi-mixed.pt"))
-export_onnx(model, "runs/export/pallet_yolo26n.onnx", size)
-PY
+uv run pv-export --checkpoint weights/pallet_yolo26n_coco-init_loco-sordi-mixed.pt --out runs/export/pallet_yolo26n.onnx
 ```
 
 **Path A: no database (quickest).** Events go to `runs/demo/events.jsonl`.
@@ -391,16 +385,16 @@ It passes when all three hold: the loss falls by at least 90%, AP50 on the train
 
 ### `pv-export`: convert a checkpoint to ONNX
 
-Produces the `.onnx` file that `pv-bench` and `pv-infer` load (opset 13, tensor names from `contracts/model_io.yaml`).
+Rebuilds the model from the config saved in the checkpoint (the same way `pv-eval` does) and produces the `.onnx` file that `pv-bench`, `pv-infer` and `pv-demo` load (opset 13, tensor names from `contracts/model_io.yaml`).
 
 ```bash
-uv run pv-export --checkpoint runs/stage1/last.pt --size 64 --out runs/export/model.onnx
+uv run pv-export --checkpoint runs/stage1/last.pt --out runs/export/model.onnx
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--checkpoint` | required | Checkpoint written by `pv-train`. |
-| `--size` | `640` | Input size the model was trained with. |
+| `--size` | the size in the checkpoint | Input size to export at. Leave it unset unless you want another one. |
 | `--out` | `runs/export/model.onnx` | Output ONNX path. |
 
 ### `pv-bench`: measure speed
