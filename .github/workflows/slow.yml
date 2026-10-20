@@ -1,0 +1,24 @@
+name: slow
+
+# The tests marked `slow`: a whole mini training job, the overfit gate, multi-process training.
+# They are too long for every pull request (one alone takes about 7 minutes on a CI runner), so
+# they run once a week and whenever someone starts the workflow by hand from the Actions tab.
+# Delete the schedule block to make it manual only.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1" # Mondays, 07:00 UTC
+
+jobs:
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --all-packages --frozen
+      - name: Slow tests
+        run: uv run pytest -q -m slow --durations=10
