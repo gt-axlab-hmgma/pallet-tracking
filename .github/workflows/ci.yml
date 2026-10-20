@@ -14,6 +14,32 @@ concurrency:
 # the tests, with the training package's tests being most of that. Splitting them makes the run as
 # long as its slowest job.
 jobs:
+  # The training tests are most of the time, and they only depend on the model, preprocess, infer
+  # and train packages. A pull request that changes nothing else skips them. A push to main always
+  # runs everything, and so does a change to the workflow, the dependencies or the root config.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      train: ${{ steps.diff.outputs.train }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          train=true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+            echo "$changed"
+            # the changed files the training tests could care about: everything not on this list
+            others=$(echo "$changed" | grep -vE '^(apps/|docs/|packages/palletvision-(demo|track|zones|events)/|tests/golden/(zones|tracker)/|tests/test_golden_(zones|tracker)\.py$|.*\.md$)' || true)
+            if [ -z "$others" ]; then
+              train=false
+            fi
+          fi
+          echo "train=$train" >> "$GITHUB_OUTPUT"
+          echo "run the training tests: $train"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -63,6 +89,8 @@ jobs:
   # The training package's tests, in groups of similar length. Every test is in exactly one group:
   # "rest" takes whatever the other three leave, so a new test folder is picked up by itself.
   test-train:
+    needs: changes
+    if: needs.changes.outputs.train == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
