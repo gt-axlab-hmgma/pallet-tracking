@@ -65,6 +65,11 @@ class DemoState:
         self.lock = threading.RLock()
         self.objects: dict[int, MockObject] = {}
         self.bus = EventBus()
+        self.live = settings.weights is not None  # tracks come from a video, not from the mouse
+        self._known_ids: set[int] = set()  # track ids the zone engine holds state for
+        self._frame_cond = threading.Condition()
+        self._live_jpeg: bytes | None = None
+        self._live_seq = 0
         self.log: deque[dict[str, Any]] = deque(maxlen=500)
         self._next_id = 1
         self.sink, start_seq, sink_warnings = build_sink(settings)
@@ -75,7 +80,7 @@ class DemoState:
         self.factory = EventFactory(
             settings.device_id,
             settings.camera_id,
-            "mock",
+            "model" if self.live else "mock",
             config_version=self.config.version,
             start_seq=start_seq,
         )
@@ -145,6 +150,50 @@ class DemoState:
             self.bus.publish(d)
         return Result(dicts, sink_error, config_error)
 
+    def apply_tracks(self, tracks: list[Track], removed_ids: list[int]) -> Result:
+        """One frame of tracker output: the tracks seen now, and the ids it gave up on.
+
+        Only tracks seen this frame move through the zones. A hidden track keeps the zones it was
+        last confirmed in, and leaves them (an exit event) only once the tracker removes it.
+        """
+        with self.lock:
+            self.objects = {
+                t.track_id: MockObject(t.track_id, t.object_type, t.box) for t in tracks
+            }
+            transitions = self.engine.update(tracks)
+            self._known_ids.update(t.track_id for t in tracks)
+            for track_id in removed_ids:
+                if track_id in self._known_ids:
+                    transitions += self.engine.remove_track(track_id)
+                    self._known_ids.discard(track_id)
+            return self._emit(transitions)
+
+    def clear_tracks(self) -> Result:
+        """Forget every track, as when the video restarts. Objects still inside a zone exit."""
+        with self.lock:
+            transitions: list[Transition] = []
+            for track_id in sorted(self._known_ids):
+                transitions += self.engine.remove_track(track_id)
+            self._known_ids.clear()
+            self.objects = {}
+            return self._emit(transitions)
+
+    def publish_frame(self, jpeg: bytes) -> None:
+        with self._frame_cond:
+            self._live_jpeg = jpeg
+            self._live_seq += 1
+            self._frame_cond.notify_all()
+
+    def wait_frame(self, after_seq: int, timeout: float) -> tuple[int, bytes | None]:
+        """Block until a frame newer than ``after_seq`` is published, or ``timeout`` passes."""
+        with self._frame_cond:
+            self._frame_cond.wait_for(lambda: self._live_seq > after_seq, timeout)
+            return self._live_seq, self._live_jpeg
+
+    def add_warning(self, text: str) -> None:
+        with self.lock:
+            self.warnings.append(text)
+
     def recent_events(self, limit: int) -> list[dict[str, Any]]:
         with self.lock:
             return list(self.log)[-limit:] if limit > 0 else []
@@ -204,6 +253,7 @@ class DemoState:
             "camera_id": self.settings.camera_id,
             "device_id": self.settings.device_id,
             "image_size": list(self.image_size),
+            "live": self.live,
             "version": self.config.version,
             "zones": cfg["zones"],
             "objects": [self.object_dict(o) for o in self.objects.values()],
