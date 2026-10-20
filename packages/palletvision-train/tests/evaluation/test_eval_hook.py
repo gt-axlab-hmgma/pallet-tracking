@@ -9,7 +9,8 @@ from omegaconf import DictConfig
 
 from palletvision_model.config import SIZES
 from palletvision_model.yolo26 import YOLO26
-from palletvision_train.cli.eval import load_model, main
+from palletvision_train.checkpoints.model import load_model
+from palletvision_train.cli.eval import main
 from palletvision_train.cli.train import build_metric, train_from_config
 from palletvision_train.datasets.data import LetterboxedDataset
 from palletvision_train.datasets.synthetic import SyntheticBoxes

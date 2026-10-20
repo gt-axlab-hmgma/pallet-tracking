@@ -10,7 +10,7 @@ from test_checkpoint import COMMON, CrashingLoss, images, model_with
 from torch import nn
 
 from palletvision_train.checkpoints.checkpoint import load_checkpoint, save_checkpoint
-from palletvision_train.cli.eval import load_model
+from palletvision_train.checkpoints.model import load_model
 from palletvision_train.training.ema import ModelEMA
 from palletvision_train.training.optim import Schedule, build_optimizer, split_parameters
 from palletvision_train.training.trainer import train

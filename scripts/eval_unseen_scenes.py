@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from palletvision_train.cli.eval import load_model
+from palletvision_train.checkpoints.model import load_model
 from palletvision_train.datasets.coco import REPO, CocoDetection
 from palletvision_train.datasets.sordi import sordi_records, subsample
 from palletvision_train.evaluation.evaluate import evaluate
