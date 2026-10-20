@@ -7,24 +7,34 @@ export interface Zone {
   min_dwell_s?: number;
 }
 
-export interface MockObject {
+/** A pallet the tracker is following in the current frame. */
+export interface TrackedBox {
   id: number;
-  object_type: string;
   box: Box;
-  /** Zones the object's ground point is currently in, as decided by the backend. */
+  /** Zones the pallet's ground point is currently in, as decided by the backend. */
   zones: string[];
+}
+
+/** The video or camera being played. `message` explains an error. */
+export interface SourceStatus {
+  kind: "video" | "camera";
+  name: string;
+  state: "playing" | "ended" | "error";
+  message: string | null;
 }
 
 export interface DemoState {
   camera_id: string;
   device_id: string;
   image_size: [number, number];
-  /** True when a video is being tracked: the objects come from the tracker, not from the mouse. */
-  live: boolean;
+  /** Changes whenever the frame zones are drawn on changes (a new source), to refresh the image. */
+  frame_version: number;
+  /** False when the API was started without a model, so no video or camera can be played. */
+  can_play: boolean;
+  source: SourceStatus | null;
   version: number;
   zones: Zone[];
-  objects: MockObject[];
-  object_types: string[];
+  objects: TrackedBox[];
   sink: string;
   warnings: string[];
 }

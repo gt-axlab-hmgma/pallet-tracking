@@ -2,13 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import { defaultBox } from "@/lib/geometry";
-import { createThrottle } from "@/lib/throttle";
-import type { Box, DemoState, MockObject, MutationResult, Zone, ZoneEvent } from "@/lib/types";
+import type { DemoState, MutationResult, Zone, ZoneEvent } from "@/lib/types";
 
 const MAX_EVENTS = 300;
-const LIVE_POLL_MS = 200; // how often the tracked objects are refreshed in live mode
-const SEND_INTERVAL_MS = 60; // ~16 updates per second while dragging
+const POLL_MS = 200; // how often the tracked pallets and the source status are refreshed
 
 export interface Notice {
   kind: "error" | "warn";
@@ -26,11 +23,13 @@ export function mergeEvents(current: ZoneEvent[], incoming: ZoneEvent[]): ZoneEv
 }
 
 /**
- * Take the tracked objects and warnings from a fresh state, keep everything else. Zones are not
- * taken: the user may be editing them, and a slow poll must not undo that.
+ * Fold a polled state into the current one. It takes the tracked pallets, the source status and
+ * the warnings, and keeps the zones: the user may be editing them, and a slow poll must not undo
+ * that. If the frame itself changed (another source), the whole fresh state is taken.
  */
 export function mergeLive(current: DemoState, fresh: DemoState): DemoState {
-  return { ...current, objects: fresh.objects, warnings: fresh.warnings };
+  if (fresh.frame_version !== current.frame_version) return fresh;
+  return { ...current, objects: fresh.objects, source: fresh.source, warnings: fresh.warnings };
 }
 
 export function useDemo() {
@@ -39,18 +38,12 @@ export function useDemo() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [sinkError, setSinkError] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
-  const stateRef = useRef<DemoState | null>(null);
+  const [sourceBusy, setSourceBusy] = useState<string | null>(null);
   const zoneQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const senders = useRef(new Map<number, ReturnType<typeof createThrottle<[Box]>>>());
-  const sendSeq = useRef(new Map<number, number>());
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
 
   const fail = useCallback((e: unknown) => setNotice({ kind: "error", text: messageOf(e) }), []);
 
-  /** Moves that log nothing say nothing about storage, so they must not clear a warning. */
+  /** Saving zones that logs nothing says nothing about storage, so it must not clear a warning. */
   const noteResult = useCallback((r: MutationResult, savedZones = false) => {
     if (r.events.length > 0 || r.sink_error) setSinkError(r.sink_error);
     if (savedZones || r.events.length > 0 || r.config_error) setConfigError(r.config_error ?? null);
@@ -70,17 +63,17 @@ export function useDemo() {
     void reload();
   }, [reload]);
 
-  const live = state?.live ?? false;
+  const loaded = state !== null;
   useEffect(() => {
-    if (!live) return;
+    if (!loaded) return;
     const id = setInterval(() => {
       api
         .getState()
         .then((fresh) => setState((s) => (s ? mergeLive(s, fresh) : s)))
         .catch(() => {}); // a missed refresh is replaced by the next one
-    }, LIVE_POLL_MS);
+    }, POLL_MS);
     return () => clearInterval(id);
-  }, [live]);
+  }, [loaded]);
 
   const backfillEvents = useCallback(async () => {
     try {
@@ -112,93 +105,33 @@ export function useDemo() {
     [fail, noteResult, reload],
   );
 
-  const patchObject = useCallback((id: number, patch: Partial<MockObject>) => {
-    setState((s) =>
-      s ? { ...s, objects: s.objects.map((o) => (o.id === id ? { ...o, ...patch } : o)) } : s,
-    );
-  }, []);
-
-  const addObject = useCallback(
-    async (objectType: string) => {
-      const s = stateRef.current;
-      if (!s) return;
+  /** Run a source change. The reply is the whole new state: new frame, no tracks, new status. */
+  const changeSource = useCallback(
+    async (label: string, job: () => Promise<DemoState>) => {
+      setSourceBusy(label);
       try {
-        const res = await api.addObject(objectType, defaultBox(s.image_size, s.objects.length));
-        setState((cur) => (cur ? { ...cur, objects: [...cur.objects, res.object] } : cur));
-        noteResult(res);
-        return res.object.id;
+        setState(await job());
+        setNotice(null);
       } catch (e) {
         fail(e);
+      } finally {
+        setSourceBusy(null);
       }
     },
-    [fail, noteResult],
+    [fail],
   );
 
-  const sendBox = useCallback(
-    async (id: number, box: Box) => {
-      const seq = (sendSeq.current.get(id) ?? 0) + 1;
-      sendSeq.current.set(id, seq);
-      try {
-        const res = await api.updateObject(id, { box });
-        noteResult(res);
-        // Responses can arrive out of order while dragging; only the latest one may set zones.
-        if (sendSeq.current.get(id) === seq) patchObject(id, { zones: res.object.zones });
-      } catch (e) {
-        fail(e);
-      }
-    },
-    [fail, noteResult, patchObject],
+  const loadVideo = useCallback(
+    (file: File) => changeSource(`Sending ${file.name}…`, () => api.uploadVideo(file)),
+    [changeSource],
   );
-
-  /** Called on every pointer move while dragging (throttled). Does not touch React state. */
-  const dragObject = useCallback(
-    (id: number, box: Box) => {
-      let sender = senders.current.get(id);
-      if (!sender) {
-        sender = createThrottle((b: Box) => void sendBox(id, b), SEND_INTERVAL_MS);
-        senders.current.set(id, sender);
-      }
-      sender.call(box);
-    },
-    [sendBox],
+  const connectCamera = useCallback(
+    (device: string) => changeSource("Connecting…", () => api.connectCamera(device)),
+    [changeSource],
   );
-
-  /** Called on pointer up: commit the final position locally and make sure it is sent last. */
-  const dropObject = useCallback(
-    (id: number, box: Box) => {
-      patchObject(id, { box });
-      senders.current.get(id)?.cancel(); // drop a pending trailing update; the final box wins
-      void sendBox(id, box);
-    },
-    [patchObject, sendBox],
-  );
-
-  const setObjectType = useCallback(
-    async (id: number, objectType: string) => {
-      patchObject(id, { object_type: objectType });
-      try {
-        noteResult(await api.updateObject(id, { object_type: objectType }));
-      } catch (e) {
-        fail(e);
-        await reload();
-      }
-    },
-    [fail, noteResult, patchObject, reload],
-  );
-
-  const removeObject = useCallback(
-    async (id: number) => {
-      senders.current.get(id)?.cancel();
-      senders.current.delete(id);
-      setState((s) => (s ? { ...s, objects: s.objects.filter((o) => o.id !== id) } : s));
-      try {
-        noteResult(await api.deleteObject(id));
-      } catch (e) {
-        fail(e);
-        await reload();
-      }
-    },
-    [fail, noteResult, reload],
+  const stopSource = useCallback(
+    () => changeSource("Stopping…", () => api.stopSource()),
+    [changeSource],
   );
 
   return {
@@ -207,14 +140,13 @@ export function useDemo() {
     notice,
     sinkError,
     configError,
+    sourceBusy,
     dismissNotice: () => setNotice(null),
     pushEvent,
     backfillEvents,
     saveZones,
-    addObject,
-    dragObject,
-    dropObject,
-    setObjectType,
-    removeObject,
+    loadVideo,
+    connectCamera,
+    stopSource,
   };
 }
