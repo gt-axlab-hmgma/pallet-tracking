@@ -1,7 +1,7 @@
 [project]
 name = "palletvision-demo"
 version = "0.1.0"
-description = "Local API behind the zone-drawing demo UI: zones, mock objects and event logging."
+description = "Local API behind the zone-drawing demo UI: zones, mock or tracked objects, and event logging."
 requires-python = ">=3.11"
 license = "LicenseRef-Proprietary"
 classifiers = ["Private :: Do Not Upload"]
@@ -9,6 +9,7 @@ dependencies = [
   "palletvision-zones",
   "palletvision-events",
   "palletvision-infer",
+  "palletvision-track",
   "fastapi>=0.115",
   "uvicorn>=0.30",
 ]
@@ -27,3 +28,4 @@ packages = ["src/palletvision_demo"]
 palletvision-zones = { workspace = true }
 palletvision-events = { workspace = true }
 palletvision-infer = { workspace = true }
+palletvision-track = { workspace = true }

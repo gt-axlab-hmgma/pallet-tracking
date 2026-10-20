@@ -71,7 +71,7 @@ export function Workspace() {
       if (e.key === "v" || e.key === "V") setMode("select");
       else if (e.key === "z" || e.key === "Z") setMode("draw");
       else if ((e.key === "Delete" || e.key === "Backspace") && mode === "select") {
-        if (selectedObject !== null) {
+        if (selectedObject !== null && !state?.live) {
           e.preventDefault();
           void removeObject(selectedObject);
           setSelectedObject(null);
@@ -83,7 +83,7 @@ export function Workspace() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, selectedZone, selectedObject, deleteZone, removeObject]);
+  }, [mode, selectedZone, selectedObject, deleteZone, removeObject, state?.live]);
 
   return (
     <div className="grid h-full grid-rows-[40px_1fr]">
@@ -112,6 +112,7 @@ export function Workspace() {
             <ObjectPanel
               objects={state.objects}
               types={state.object_types}
+              live={state.live}
               selectedId={selectedObject}
               liveDrag={liveDrag}
               onLiveDrag={setLiveDrag}

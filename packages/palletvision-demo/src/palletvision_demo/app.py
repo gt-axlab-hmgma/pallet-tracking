@@ -1,9 +1,13 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from palletvision_demo.live.runner import LiveRunner
 from palletvision_demo.live.state import (
     DemoState,
     ObjectInputError,
@@ -13,6 +17,10 @@ from palletvision_demo.live.state import (
 )
 from palletvision_demo.live.stream import sse_lines
 from palletvision_demo.settings import Settings
+from palletvision_infer.backends import OnnxRuntimeBackend
+from palletvision_infer.detections import Detector
+
+BOUNDARY = "frame"
 
 
 class ZonesBody(BaseModel):
@@ -37,12 +45,35 @@ def _result(result: Result) -> dict[str, Any]:
     }
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, detector: Detector | None = None) -> FastAPI:
+    """With ``settings.weights`` the source video is tracked live; ``detector`` replaces the ONNX
+    model it would load (for tests)."""
     settings = settings or Settings()
     state = DemoState(settings)
-    app = FastAPI(title="palletvision demo", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    runner: LiveRunner | None = None
+    if settings.weights is not None:
+        if settings.source is None:
+            raise ValueError("live tracking needs --source, the video to run on")
+        detector = detector or OnnxRuntimeBackend(settings.weights, conf=settings.conf)
+        runner = LiveRunner(state, detector, settings)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if runner:
+            runner.start()
+        yield
+        if runner:
+            await asyncio.to_thread(runner.stop)
+
+    app = FastAPI(
+        title="palletvision demo",
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+        lifespan=lifespan,
+    )
     app.state.settings = settings
     app.state.demo = state
+    app.state.runner = runner
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -52,6 +83,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def frame() -> Response:
         return Response(
             state.frame_jpeg, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"}
+        )
+
+    @app.get("/api/live/stream")
+    async def live_stream(request: Request) -> StreamingResponse:
+        """The video as motion JPEG, one part per processed frame, for an <img> to play."""
+
+        async def parts() -> AsyncIterator[bytes]:
+            seq = 0
+            while not await request.is_disconnected():
+                seq, jpeg = await asyncio.to_thread(state.wait_frame, seq, 1.0)
+                if jpeg is None:
+                    continue
+                head = f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}"
+                yield head.encode() + b"\r\n\r\n" + jpeg + b"\r\n"
+
+        return StreamingResponse(
+            parts(),
+            media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/api/state")

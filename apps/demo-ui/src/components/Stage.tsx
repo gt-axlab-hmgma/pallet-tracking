@@ -203,11 +203,13 @@ export function Stage({
   };
 
   const hint = !drawing
-    ? selectedObject !== null
-      ? "Drag the box to move it. The dot at its bottom centre is what zones test; the square resizes."
-      : selected
-        ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
-        : "Click a zone to select it, or drag a mock object across one. Press Z to draw."
+    ? state.live
+      ? "Live: the boxes are tracks from the video. Click a zone to select it, or press Z to draw one."
+      : selectedObject !== null
+        ? "Drag the box to move it. The dot at its bottom centre is what zones test; the square resizes."
+        : selected
+          ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
+          : "Click a zone to select it, or drag a mock object across one. Press Z to draw."
     : draft.length === 0
       ? "Click to place the first corner. Add as many corners as the floor area needs."
       : draft.length < 3
@@ -233,7 +235,20 @@ export function Stage({
           onPointerMove={(e) => drawing && setCursor(toImage(e))}
           onPointerLeave={() => setCursor(null)}
         >
-          <image href="/api/frame" width={w} height={h} />
+          {state.live ? (
+            // a motion JPEG only plays in an <img>, and SVG <image> would show one frame
+            <foreignObject width={w} height={h} style={{ pointerEvents: "none" }}>
+              {/* next/image cannot play a motion JPEG */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/api/live/stream"
+                alt=""
+                style={{ display: "block", width: "100%", height: "100%" }}
+              />
+            </foreignObject>
+          ) : (
+            <image href="/api/frame" width={w} height={h} />
+          )}
           <ZoneLayer
             zones={zones}
             selectedId={selectedZone}
@@ -268,7 +283,7 @@ export function Stage({
             objects={objects}
             selectedId={selectedObject}
             px={px}
-            interactive={!drawing}
+            interactive={!drawing && !state.live}
             onStart={startObjectDrag}
             onMove={moveObjectDrag}
             onEnd={endObjectDrag}

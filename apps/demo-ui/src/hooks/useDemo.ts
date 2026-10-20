@@ -7,6 +7,7 @@ import { createThrottle } from "@/lib/throttle";
 import type { Box, DemoState, MockObject, MutationResult, Zone, ZoneEvent } from "@/lib/types";
 
 const MAX_EVENTS = 300;
+const LIVE_POLL_MS = 200; // how often the tracked objects are refreshed in live mode
 const SEND_INTERVAL_MS = 60; // ~16 updates per second while dragging
 
 export interface Notice {
@@ -22,6 +23,14 @@ export function mergeEvents(current: ZoneEvent[], incoming: ZoneEvent[]): ZoneEv
   const fresh = incoming.filter((e) => !seen.has(e.event_id));
   if (fresh.length === 0) return current;
   return [...fresh.reverse(), ...current].slice(0, MAX_EVENTS);
+}
+
+/**
+ * Take the tracked objects and warnings from a fresh state, keep everything else. Zones are not
+ * taken: the user may be editing them, and a slow poll must not undo that.
+ */
+export function mergeLive(current: DemoState, fresh: DemoState): DemoState {
+  return { ...current, objects: fresh.objects, warnings: fresh.warnings };
 }
 
 export function useDemo() {
@@ -60,6 +69,18 @@ export function useDemo() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
   }, [reload]);
+
+  const live = state?.live ?? false;
+  useEffect(() => {
+    if (!live) return;
+    const id = setInterval(() => {
+      api
+        .getState()
+        .then((fresh) => setState((s) => (s ? mergeLive(s, fresh) : s)))
+        .catch(() => {}); // a missed refresh is replaced by the next one
+    }, LIVE_POLL_MS);
+    return () => clearInterval(id);
+  }, [live]);
 
   const backfillEvents = useCallback(async () => {
     try {

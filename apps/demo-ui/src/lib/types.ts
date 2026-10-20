@@ -19,6 +19,8 @@ export interface DemoState {
   camera_id: string;
   device_id: string;
   image_size: [number, number];
+  /** True when a video is being tracked: the objects come from the tracker, not from the mouse. */
+  live: boolean;
   version: number;
   zones: Zone[];
   objects: MockObject[];
