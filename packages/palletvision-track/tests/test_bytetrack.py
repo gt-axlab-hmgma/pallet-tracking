@@ -204,3 +204,23 @@ def test_tracked_and_lost_tracks_in_different_places_are_both_kept() -> None:
     tracker._tracks = [a, b]
     tracker._drop_duplicates()
     assert len(tracker._tracks) == 2
+
+
+def test_removed_ids_lists_tracks_given_up_on_in_that_update() -> None:
+    tracker = ByteTracker(TrackerConfig(max_time_lost=3))
+    for f in range(1, 4):
+        run(tracker, f, [(100, 0.9)])
+    for f in range(4, 8):  # last seen in frame 3; removed in frame 7 (7 - 3 > 3)
+        run(tracker, f, [])
+        assert tracker.removed_ids == ([1] if f == 7 else [])
+    run(tracker, 8, [])
+    assert tracker.removed_ids == []  # reported once
+
+
+def test_a_track_that_never_confirmed_is_reported_removed_too() -> None:
+    # harmless for callers (they never saw it), but the list is complete
+    tracker = ByteTracker()
+    run(tracker, 1, [(100, 0.9)])
+    run(tracker, 2, [(100, 0.9), (700, 0.9)])
+    run(tracker, 3, [(100, 0.9)])  # the flash is not seen again
+    assert tracker.removed_ids == [2]

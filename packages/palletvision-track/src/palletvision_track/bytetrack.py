@@ -52,11 +52,14 @@ class ByteTracker:
         self._ids = TrackIdCounter()
         self._tracks: list[Track] = []  # TRACKED and LOST ones, including unconfirmed
         self._started = False
+        # IDs of tracks the last update gave up on, for callers that keep state per track
+        self.removed_ids: list[int] = []
 
     def reset(self) -> None:
         self._ids.reset()
         self._tracks = []
         self._started = False
+        self.removed_ids = []
 
     def update(self, frame_id: int, boxes: npt.ArrayLike, scores: npt.ArrayLike) -> list[Track]:
         """Feed one frame's detections ``(N, 4)`` corners and ``(N,)`` scores.
@@ -118,8 +121,10 @@ class ByteTracker:
             if t.state is TrackState.LOST and frame_id - t.frame_id > cfg.max_time_lost:
                 t.mark_removed()
 
+        before = {t.track_id for t in self._tracks}
         self._tracks = [t for t in self._tracks + born if t.state is not TrackState.REMOVED]
         self._drop_duplicates()
+        self.removed_ids = sorted(before - {t.track_id for t in self._tracks})
         # 8. Report confirmed tracks that were matched this frame. Lost tracks are not output.
         return [t for t in self._tracks if t.state is TrackState.TRACKED and t.is_activated]
 
