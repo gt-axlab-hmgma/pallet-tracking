@@ -24,6 +24,9 @@ def test_every_stage_can_be_started_with_python_dash_m(module: str) -> None:
     assert done.returncode == 0 and ("usage" in shown or "hydra" in shown)  # Hydra words it so
 
 
+# A whole mini training job (doctor, train, evaluate, plot, bundle) in subprocesses: 15 s on a
+# laptop but about 7 minutes on a 2-core CI runner, so it runs in the weekly slow workflow instead.
+@pytest.mark.slow
 def test_a_synthetic_smoke_run_produces_the_bundle(tmp_path: Path) -> None:
     main(
         [
