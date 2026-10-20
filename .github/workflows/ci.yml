@@ -5,10 +5,37 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to a pull request makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The jobs below run side by side. One job doing all of it took 6 to 11 minutes, almost all of it
+# the tests, with the training package's tests being most of that. Splitting them makes the run as
+# long as its slowest job.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
-    # The database tests create throwaway databases on this server (defaults match .env.example).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --all-packages --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run mypy packages
+      - name: Build packages
+        run: uv build --all-packages --out-dir dist
+
+  # Everything except the training package. The database tests create throwaway databases on this
+  # server (defaults match .env.example).
+  test-core:
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16-alpine
@@ -30,16 +57,40 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --all-packages --frozen
-      - name: Lint
-        run: uv run ruff check .
-      - name: Format
-        run: uv run ruff format --check .
-      - name: Types
-        run: uv run mypy packages
       - name: Test
-        run: uv run pytest -q
-      - name: Build packages
-        run: uv build --all-packages --out-dir dist
+        run: uv run pytest -q --durations=10 tests packages --ignore=packages/palletvision-train
+
+  # The training package's tests, in groups of similar length. Every test is in exactly one group:
+  # "rest" takes whatever the other three leave, so a new test folder is picked up by itself.
+  test-train:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: job
+            args: packages/palletvision-train/tests/job
+          - group: evaluation
+            args: packages/palletvision-train/tests/evaluation
+          - group: training
+            args: packages/palletvision-train/tests/training packages/palletvision-train/tests/tools
+          - group: rest
+            args: >-
+              packages/palletvision-train
+              --ignore=packages/palletvision-train/tests/job
+              --ignore=packages/palletvision-train/tests/evaluation
+              --ignore=packages/palletvision-train/tests/training
+              --ignore=packages/palletvision-train/tests/tools
+    name: test-train (${{ matrix.group }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --all-packages --frozen
+      - name: Test
+        run: uv run pytest -q --durations=10 ${{ matrix.args }}
 
   ui:
     runs-on: ubuntu-latest
