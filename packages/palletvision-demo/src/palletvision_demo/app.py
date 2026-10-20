@@ -132,17 +132,21 @@ def create_app(settings: Settings | None = None, detector: Detector | None = Non
         dest = settings.upload_dir / safe
         part = dest.with_name(dest.name + ".part")
         size = 0
-        with part.open("wb") as out:
-            async for chunk in request.stream():
-                size += len(chunk)
-                await asyncio.to_thread(out.write, chunk)
-        if size == 0:
-            part.unlink()
-            raise HTTPException(status_code=422, detail="that file is empty")
-        part.replace(dest)
+        try:
+            with part.open("wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    await asyncio.to_thread(out.write, chunk)
+            if size == 0:
+                raise HTTPException(status_code=422, detail="that file is empty")
+            part.replace(dest)
+        except BaseException:  # empty, or the browser gave up halfway: leave no half file
+            part.unlink(missing_ok=True)
+            raise
         try:
             await asyncio.to_thread(live.start, str(dest), "video", safe)
         except OSError as exc:
+            dest.unlink(missing_ok=True)  # not a video: do not keep it
             raise HTTPException(
                 status_code=422, detail=f"cannot play that video: {redact(str(exc))}"
             ) from exc

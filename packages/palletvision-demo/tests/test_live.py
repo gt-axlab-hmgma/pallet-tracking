@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import cv2
@@ -180,6 +181,20 @@ def test_a_file_that_is_not_a_readable_video_is_refused(tmp_path: Path) -> None:
     res = c.put("/api/source/video", params={"name": "fake.mp4"}, content=b"not a video")
     assert res.status_code == 422
     assert "cannot play" in res.json()["detail"]
+    assert list((tmp_path / "uploads").iterdir()) == []  # the bad file is not kept
+
+
+def test_an_upload_cut_off_halfway_leaves_no_partial_file(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path), Scripted())
+    c = TestClient(app)
+
+    def body() -> Iterator[bytes]:
+        yield b"x" * 1000
+        raise ConnectionError("browser went away")
+
+    with pytest.raises(ConnectionError):
+        c.put("/api/source/video", params={"name": "a.mp4"}, content=body())
+    assert list((tmp_path / "uploads").iterdir()) == []
 
 
 def test_an_upload_name_cannot_escape_the_upload_folder(tmp_path: Path) -> None:
