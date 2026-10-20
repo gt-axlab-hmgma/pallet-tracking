@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { MAX_VIDEO_BYTES, formatSize } from "@/lib/limits";
 import type { DemoState, MutationResult, Zone, ZoneEvent } from "@/lib/types";
 
 const MAX_EVENTS = 300;
@@ -122,7 +123,18 @@ export function useDemo() {
   );
 
   const loadVideo = useCallback(
-    (file: File) => changeSource(`Sending ${file.name}…`, () => api.uploadVideo(file)),
+    (file: File) => {
+      if (file.size > MAX_VIDEO_BYTES) {
+        setNotice({
+          kind: "error",
+          text: `${file.name} is ${formatSize(file.size)}; the limit is ${formatSize(MAX_VIDEO_BYTES)}. Cut it shorter, or start pv-demo with --source ${file.name} to play it from disk.`,
+        });
+        return Promise.resolve();
+      }
+      return changeSource(`Sending ${file.name} (${formatSize(file.size)})…`, () =>
+        api.uploadVideo(file),
+      );
+    },
     [changeSource],
   );
   const connectCamera = useCallback(
