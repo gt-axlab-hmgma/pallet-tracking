@@ -52,9 +52,10 @@ export function EventFeed({ events, sink, sinkError, configError }: Props) {
           <li>
             Draw a zone with <kbd className="rounded border border-line px-1">Z</kbd>.
           </li>
-          <li>Add a mock object.</li>
-          <li>Drag it across the zone edge.</li>
-          <li className="list-none text-faint">Joins and leaves appear here as they happen.</li>
+          <li>Load a video clip or connect a camera.</li>
+          <li className="list-none text-faint">
+            Each time a pallet enters or leaves a zone, it appears here.
+          </li>
         </ol>
       ) : (
         <ol

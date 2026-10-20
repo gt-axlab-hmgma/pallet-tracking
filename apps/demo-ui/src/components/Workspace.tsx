@@ -9,7 +9,7 @@ import { EventFeed } from "./EventFeed";
 import { NoticeBar } from "./NoticeBar";
 import { Stage } from "./Stage";
 import { type Mode, Toolbar } from "./Toolbar";
-import { ObjectPanel } from "./ObjectPanel";
+import { SourcePanel } from "./SourcePanel";
 import { ZonePanel } from "./ZonePanel";
 import { TopBar } from "./TopBar";
 import { WarningsBar } from "./WarningsBar";
@@ -19,9 +19,7 @@ export function Workspace() {
   const status = useEventStream(demo.pushEvent, demo.backfillEvents);
   const [mode, setMode] = useState<Mode>("select");
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
-  const [selectedObject, setSelectedObject] = useState<number | null>(null);
-  const [liveDrag, setLiveDrag] = useState(true);
-  const { state, saveZones, removeObject } = demo;
+  const { state, saveZones } = demo;
 
   const createZone = useCallback(
     (polygon: Point[]) => {
@@ -70,20 +68,14 @@ export function Workspace() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "v" || e.key === "V") setMode("select");
       else if (e.key === "z" || e.key === "Z") setMode("draw");
-      else if ((e.key === "Delete" || e.key === "Backspace") && mode === "select") {
-        if (selectedObject !== null && !state?.live) {
-          e.preventDefault();
-          void removeObject(selectedObject);
-          setSelectedObject(null);
-        } else if (selectedZone) {
-          e.preventDefault();
-          deleteZone(selectedZone);
-        }
+      else if ((e.key === "Delete" || e.key === "Backspace") && mode === "select" && selectedZone) {
+        e.preventDefault();
+        deleteZone(selectedZone);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, selectedZone, selectedObject, deleteZone, removeObject, state?.live]);
+  }, [mode, selectedZone, deleteZone]);
 
   return (
     <div className="grid h-full grid-rows-[40px_1fr]">
@@ -93,6 +85,16 @@ export function Workspace() {
           className="flex flex-col gap-4 border-r border-line bg-surface p-3"
           aria-label="Tools"
         >
+          {state && (
+            <SourcePanel
+              source={state.source}
+              canPlay={state.can_play}
+              busy={demo.sourceBusy}
+              onVideo={demo.loadVideo}
+              onCamera={demo.connectCamera}
+              onStop={demo.stopSource}
+            />
+          )}
           <Toolbar mode={mode} onChange={setMode} />
           {state && (
             <ZonePanel
@@ -101,39 +103,10 @@ export function Workspace() {
               selectedId={selectedZone}
               onSelect={(id) => {
                 setMode("select");
-                setSelectedObject(null);
                 setSelectedZone(id);
               }}
               onRename={renameZone}
               onDelete={deleteZone}
-            />
-          )}
-          {state && (
-            <ObjectPanel
-              objects={state.objects}
-              types={state.object_types}
-              live={state.live}
-              selectedId={selectedObject}
-              liveDrag={liveDrag}
-              onLiveDrag={setLiveDrag}
-              onSelect={(id) => {
-                setMode("select");
-                setSelectedZone(null);
-                setSelectedObject(id);
-              }}
-              onAdd={async (type) => {
-                const id = await demo.addObject(type);
-                if (id !== undefined) {
-                  setMode("select");
-                  setSelectedZone(null);
-                  setSelectedObject(id);
-                }
-              }}
-              onChangeType={demo.setObjectType}
-              onDelete={(id) => {
-                void removeObject(id);
-                setSelectedObject((cur) => (cur === id ? null : cur));
-              }}
             />
           )}
         </aside>
@@ -149,11 +122,6 @@ export function Workspace() {
                 onSelectZone={setSelectedZone}
                 onCreateZone={createZone}
                 onEditZone={editZone}
-                selectedObject={selectedObject}
-                onSelectObject={setSelectedObject}
-                liveDrag={liveDrag}
-                onDragObject={demo.dragObject}
-                onDropObject={demo.dropObject}
               />
             ) : (
               <p className="p-6 text-dim">{demo.notice?.text ?? "Loading…"}</p>

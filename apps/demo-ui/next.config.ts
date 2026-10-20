@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   // Compression buffers the server-sent event stream, so the live feed would stall.
   compress: false,
   devIndicators: false,
+  // Videos are uploaded through this proxy, which refuses bodies over 10 MB by default (it cuts
+  // the connection). The UI refuses files over MAX_VIDEO_BYTES in lib/limits.ts, the same size.
+  experimental: { proxyClientMaxBodySize: "2gb" },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_URL}/api/:path*` }];
   },

@@ -9,15 +9,18 @@ SinkKind = Literal["jsonl", "postgres", "outbox", "stdout"]
 class Settings:
     camera_id: str = "cam01"
     device_id: str = "demo-laptop"
-    source: str | None = None  # image, video or camera index; None = generated placeholder
+    source: str | None = (
+        None  # a video file, camera index or stream URL to start on; else pick in the UI
+    )
     sink: SinkKind = "jsonl"
     jsonl_path: Path = Path("runs/demo/events.jsonl")
     outbox_path: Path = Path("runs/outbox.db")
     db_url: str | None = None
     hysteresis_frames: int = 1
-    # Live mode: with weights set, the source video is run through the detector and tracker and
-    # the tracks drive the zones, instead of mock objects dragged by hand.
+    # With weights, a video or camera chosen in the UI is run through the detector and tracker
+    # and the tracks drive the zones.
     weights: Path | None = None  # ONNX model
+    upload_dir: Path = Path("runs/demo/uploads")  # where videos uploaded from the browser go
     fps: float = 10.0  # frames per second the detector and tracker run at
     conf: float = 0.1  # detections below this score are dropped; ByteTrack uses the low ones
     lost_seconds: float = 5.0  # how long a hidden object keeps its id

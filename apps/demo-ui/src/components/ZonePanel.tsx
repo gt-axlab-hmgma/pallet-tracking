@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { zoneColor } from "@/lib/geometry";
-import type { MockObject, Zone } from "@/lib/types";
+import type { TrackedBox, Zone } from "@/lib/types";
 
 interface Props {
   zones: Zone[];
-  objects: MockObject[];
+  objects: TrackedBox[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRename: (id: string, next: string) => string | null; // returns an error message, or null

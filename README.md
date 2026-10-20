@@ -4,7 +4,7 @@ Pallet detection, tracking and zone analytics for HMGMA. A clean-room PyTorch de
 
 **Status**
 
-- Working: training, ONNX export, benchmarking and video/webcam inference; the ByteTrack tracker; the zone engine; the event pipeline (local queue, Postgres); and a browser demo where you draw zones and either drag mock bounding boxes across them or play a video through the detector and tracker (see [live tracking](#live-tracking-a-video-through-detector-tracker-and-zones)).
+- Working: training, ONNX export, benchmarking and video/webcam inference; the ByteTrack tracker; the zone engine; the event pipeline (local queue, Postgres); and a browser demo where you load a video or camera, draw zones and watch pallets enter and leave them (see [video and camera sources](#video-and-camera-sources)).
 - Not yet: the HTTP ingest service for many Jetsons, and the C++/TensorRT runtime.
 
 ## Licensing
@@ -48,8 +48,8 @@ Diagrams of both setups, including what is not built yet, are in [docs/post-infe
 
 ```text
  browser (:3000)  ──►  Next.js UI  ──/api──►  pv-demo API (:8000)  ──►  zone engine  ──►  event
-   draw zones                                   saves each zone set as a version in Postgres   │
-   drag mock boxes  ◄── live event log (SSE) ◄──────────────────────────────────────────────────┤
+   load video/camera, draw zones                saves each zone set as a version in Postgres   │
+   watch in/out     ◄── live event log (SSE) ◄──────────────────────────────────────────────────┤
                                                                                                 ▼
                                                               jsonl file │ Postgres │ outbox (--sink)
 ```
@@ -67,13 +67,23 @@ Diagrams of both setups, including what is not built yet, are in [docs/post-infe
 
 ## The zone demo: run it
 
-You run two programs, the API and the UI, plus optionally the database. Use one terminal each, all from the repo root.
+You run two programs, the API and the UI, plus optionally the database. Use one terminal each, all from the repo root. The API needs the detector as an ONNX file. To make one from the model in use (one-off; `pv-export` still exports the placeholder model):
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+from palletvision_train.cli.eval import load_model
+from palletvision_train.tools.export import export_onnx
+model, _, size = load_model(Path("weights/pallet_yolo26n_coco-init_loco-sordi-mixed.pt"))
+export_onnx(model, "runs/export/pallet_yolo26n.onnx", size)
+PY
+```
 
 **Path A: no database (quickest).** Events go to `runs/demo/events.jsonl`.
 
 ```bash
 # terminal 1: the API
-uv run pv-demo
+uv run pv-demo --weights runs/export/pallet_yolo26n.onnx
 
 # terminal 2: the UI
 npm run dev --prefix apps/demo-ui
@@ -89,7 +99,7 @@ docker compose up -d db
 uv run pv-db migrate
 
 # terminal 2: the API, writing to Postgres
-uv run pv-demo --sink postgres
+uv run pv-demo --weights runs/export/pallet_yolo26n.onnx --sink postgres
 
 # terminal 3: the UI
 npm run dev --prefix apps/demo-ui
@@ -97,14 +107,23 @@ npm run dev --prefix apps/demo-ui
 
 Open <http://localhost:3000>, then check the rows with the [queries below](#look-at-the-data).
 
-**Use your own camera frame.** `uv run pv-demo --source data/videos/clip.mp4` uses the video's first frame, `--source frame.png` an image, and `--source 0` a snapshot from the laptop webcam. Without `--source` you get a generated slanted floor grid.
+You can also start the API already playing something: `--source data/infer/clip.mp4`, `--source 0` (a camera) or `--source rtsp://...`. Without `--weights` the page still opens, so zones can be drawn, but no source can be played.
 
 ### Walkthrough
 
-1. Click **Draw zone** (or press `Z`). Click the corners of a floor area one by one. Use as many corners as the outline needs, so slanted or L-shaped areas are fine. Click the first point or press `Enter` to close it.
-2. In **Mock objects**, pick a type and click **Add**. A bounding box appears. The dot at the bottom centre of the box is the point the zones test.
-3. Drag the box. When the dot crosses a zone edge, the **Event log** on the right shows `object of type pallet_type_a joined zone zone_1` or `... left zone zone_1`. Dragging from one zone straight into another logs a leave, then a join.
-4. Draw a zone around a box that is already there, or reshape a zone under one: events are logged for that too.
+1. In **Source**, choose **Video clip** and pick a file from your computer, or **Camera** and connect one (see below). The video plays behind the zones, and a box with an id follows every pallet. The dot at the bottom centre of a box is the point the zones test; it turns green inside a zone.
+2. Click **Draw zone** (or press `Z`). Click the corners of a floor area one by one. Use as many corners as the outline needs, so slanted or L-shaped areas are fine. Click the first point or press `Enter` to close it. You can draw zones before loading a source, on the placeholder frame, but a zone is drawn in the pixels of the current frame, so load the source first if you can.
+3. Watch the **Event log** on the right. When a pallet's dot crosses a zone edge it shows `object of type pallet_unknown joined zone zone_1` or `... left zone zone_1`.
+4. Draw a zone around a pallet that is already there, or reshape a zone under one: events are logged for that too.
+
+### Video and camera sources
+
+- **Video clip:** the file is sent to the API (which runs on your machine) and saved under `runs/demo/uploads/` (git-ignored, never committed). The video loops; at each restart the tracker and all open visits are reset, so exit events are logged. `--no-loop` stops at the end.
+- **Camera:** type an index (`0` is the first camera on the machine running the API; macOS asks the terminal for camera permission the first time) or an `rtsp://` / `http(s)://` stream URL. Only indexes and stream URLs are accepted, never file paths, and a password in a URL is never shown or logged.
+- **Stop** removes the source: pallets still inside a zone exit it.
+- **A hidden pallet keeps its zone.** Only pallets seen in the current frame move through zones. A pallet hidden behind a forklift stays "inside" until the tracker gives up on it, `--lost-seconds` after it was last seen, and only then is an exit logged.
+- **IDs are not appearance-based.** Tracking is by box overlap and motion only, so two pallets that cross paths can swap ids, and a pallet hidden longer than `--lost-seconds` comes back with a new one.
+- **One class for now.** Every pallet is `pallet_unknown`; class voting is not built yet.
 
 ### Controls
 
@@ -117,10 +136,8 @@ Open <http://localhost:3000>, then check the rows with the [queries below](#look
 | Select | Click a zone or its name in the list | Select it |
 | Select | Drag a corner handle of the selected zone | Reshape (saved on release) |
 | Select | Double-click a zone name in the list | Rename |
-| Select | `Delete` | Remove the selected zone or object |
-| Select | Drag a box / drag its corner square | Move / resize a mock object |
-| Mock objects | Type dropdown | Change the object's type |
-| Mock objects | **Log events while dragging** | On: events fire the moment the dot crosses an edge. Off: only when you release. |
+| Select | `Delete` | Remove the selected zone |
+| Source | **Choose a video…** / **Connect** / **Stop** | Load a clip, connect a camera, or remove the source |
 
 **Where zones are kept.** Zones live in the database, not in a file. With `--sink postgres`, every save is stored as a new, immutable version in `zone_configs` (you keep the full history), the demo loads the latest version when it starts, and version numbers continue from the database. To start over, draw new zones; old versions stay in the history. With any other sink there is no database, so zones exist only while the API is running, and a bar at the top of the page says so. If the saved zones were drawn on a different frame size, a warning is shown.
 
@@ -133,7 +150,13 @@ uv run pv-demo --sink postgres --camera-id cam01 --device-id nano-01
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--sink` | `jsonl` | Where events go: `jsonl` (a file), `postgres` (events and zone versions), `outbox` (local queue for `pv-sync`) or `stdout`. |
-| `--source` | none | Reference frame: image, video, or camera index. Default is a generated placeholder. |
+| `--weights` | none | ONNX model. Needed to play a video or camera. |
+| `--source` | none | Start on this video file, camera index or stream URL. Otherwise choose one in the UI. |
+| `--fps` | `10` | Frames per second the detector and tracker run at (a file is thinned to this). |
+| `--conf` | `0.1` | Lowest detection score kept. ByteTrack's second round uses low scores, so this is lower than the `0.25` of `pv-infer`. |
+| `--lost-seconds` | `5` | How long a hidden pallet keeps its id. |
+| `--no-loop` | loop | Stop at the end of a video instead of restarting. |
+| `--upload-dir` | `runs/demo/uploads` | Where videos sent from the UI are kept. |
 | `--camera-id` | `cam01` | Names the zone file and tags the events. |
 | `--device-id` | `demo-laptop` | Tags the events. Production uses one id per Jetson. |
 | `--jsonl` | `runs/demo/events.jsonl` | File used by `--sink jsonl`. |
@@ -142,40 +165,7 @@ uv run pv-demo --sink postgres --camera-id cam01 --device-id nano-01
 | `--hysteresis` | `1` | Consecutive frames needed to confirm a move. `1` reacts instantly; real video would use about `3` so one noisy frame cannot create events. |
 | `--host`, `--port` | `127.0.0.1`, `8000` | Where the API listens. If you change the port, start the UI with `PV_API_URL=http://127.0.0.1:<port>`. |
 
-### Live tracking: a video through detector, tracker and zones
-
-Give `pv-demo` an ONNX model and a video and the mock objects are replaced by real tracks: each frame is detected, the detections go to ByteTrack (`palletvision-track`), and the tracks seen in that frame move through the zones you draw. Events have `source: model`. The browser shows the video behind the zones, with a track id on every box.
-
-```bash
-# one-off: turn a checkpoint into ONNX (the real model; `pv-export` still exports the placeholder)
-uv run python - <<'PY'
-from pathlib import Path
-from palletvision_train.cli.eval import load_model
-from palletvision_train.tools.export import export_onnx
-model, _, size = load_model(Path("weights/pallet_yolo26n_coco-init_loco-sordi-mixed.pt"))
-export_onnx(model, "runs/export/pallet_yolo26n.onnx", size)
-PY
-
-uv run pv-demo --source data/infer/your_clip.mp4 --weights runs/export/pallet_yolo26n.onnx
-npm run dev --prefix apps/demo-ui          # in a second terminal, then open http://localhost:3000
-```
-
-Draw zones as usual (press `Z`). The video loops, and at each restart the tracker and all open visits are reset (exit events are logged). Notes:
-
-- **A hidden pallet keeps its zone.** Only tracks seen in the current frame move through zones. A pallet that is hidden (behind a forklift, say) stays "inside" until the tracker gives up on it, `--lost-seconds` after it was last seen, and only then is an exit logged.
-- **The detector must keep low-score boxes.** ByteTrack's second round uses them, so `--conf` defaults to `0.1`, not the `0.25` of `pv-infer`.
-- **IDs are not appearance-based.** Tracking is by box overlap and motion only, so two pallets that cross paths can swap ids, and a pallet hidden longer than `--lost-seconds` comes back with a new one.
-- **One class for now.** Every track is `pallet_unknown`; class voting is not built yet.
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--weights` | none | ONNX model. With it, `--source` must be a video and the demo runs live. |
-| `--fps` | `10` | Frames per second the detector and tracker run at (a file is thinned to this). |
-| `--conf` | `0.1` | Lowest detection score kept. |
-| `--lost-seconds` | `5` | How long a hidden pallet keeps its id. |
-| `--no-loop` | loop | Stop at the end of the video instead of restarting. |
-
-If Postgres is down while using `--sink postgres`, dragging keeps working and the event log shows a "not stored" warning, but those events are lost. To avoid losing events, use `--sink outbox` and run `pv-sync` (below).
+If Postgres is down while using `--sink postgres`, tracking keeps working and the event log shows a "not stored" warning, but those events are lost. To avoid losing events, use `--sink outbox` and run `pv-sync` (below).
 
 ## Database (local Postgres)
 
@@ -247,7 +237,7 @@ select device_id, min(seq), max(seq), count(*) from events group by device_id;
 | `event_type` | `enter` (joined) or `exit` (left). |
 | `zone_id`, `object_type`, `track_id` | Which zone, what kind of object, which tracked object. |
 | `config_version` | Version of the zone file the event was computed against. |
-| `source` | `mock` (demo) or `model` (real detections). |
+| `source` | `model` (detections from the detector and tracker). `mock` is no longer produced by the demo. |
 | `device_ts` | Time on the device clock. The database also stores `received_at` from its own clock. |
 
 The formal definitions are in [`contracts/events.schema.json`](contracts/events.schema.json) and [`contracts/zones.schema.json`](contracts/zones.schema.json).
@@ -261,7 +251,7 @@ uv run pv-demo --sink outbox       # terminal 1: events are queued in runs/outbo
 uv run pv-sync                     # terminal 2: forwards them to Postgres
 ```
 
-Try it: stop the database (`docker compose stop db`), drag some boxes, then `docker compose start db`. The events arrive afterwards, once each.
+Try it: stop the database (`docker compose stop db`), let some pallets cross a zone, then `docker compose start db`. The events arrive afterwards, once each.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |

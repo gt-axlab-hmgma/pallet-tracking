@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { distance, moveBox, resizeBox } from "@/lib/geometry";
-import type { Box, DemoState, Point } from "@/lib/types";
+import { distance } from "@/lib/geometry";
+import type { DemoState, Point } from "@/lib/types";
 import { DraftLayer } from "./DraftLayer";
 import type { Mode } from "./Toolbar";
 import { ObjectLayer } from "./ObjectLayer";
@@ -16,11 +16,6 @@ interface Props {
   onSelectZone: (id: string | null) => void;
   onCreateZone: (polygon: Point[]) => void;
   onEditZone: (id: string, polygon: Point[]) => void;
-  selectedObject: number | null;
-  onSelectObject: (id: number | null) => void;
-  liveDrag: boolean;
-  onDragObject: (id: number, box: Box) => void;
-  onDropObject: (id: number, box: Box) => void;
 }
 
 const CLOSE_RADIUS_PX = 12; // on-screen distance within which a click closes the polygon
@@ -37,11 +32,6 @@ export function Stage({
   onSelectZone,
   onCreateZone,
   onEditZone,
-  selectedObject,
-  onSelectObject,
-  liveDrag,
-  onDragObject,
-  onDropObject,
 }: Props) {
   const [w, h] = state.image_size;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -53,13 +43,6 @@ export function Stage({
     index: number;
     point: Point;
   } | null>(null);
-  const objDrag = useRef<{
-    id: number;
-    kind: "move" | "resize";
-    startPointer: Point;
-    startBox: Box;
-  } | null>(null);
-  const [liveBox, setLiveBox] = useState<{ id: number; box: Box } | null>(null);
   const drawing = mode === "draw";
 
   // While a corner is being dragged the zone is shown with its live shape.
@@ -74,12 +57,6 @@ export function Stage({
           : z,
       ),
     [state.zones, vertexDrag],
-  );
-  // The dragged object is shown at its live position without touching the zone layer.
-  const objects = useMemo(
-    () =>
-      state.objects.map((o) => (liveBox && o.id === liveBox.id ? { ...o, box: liveBox.box } : o)),
-    [state.objects, liveBox],
   );
   const selected = zones.find((z) => z.id === selectedZone) ?? null;
 
@@ -145,7 +122,6 @@ export function Stage({
   const onPointerDown = (e: React.PointerEvent) => {
     if (!drawing) {
       onSelectZone(null);
-      onSelectObject(null);
       return;
     }
     const p = toImage(e);
@@ -167,49 +143,12 @@ export function Stage({
     );
   };
 
-  const startObjectDrag = (id: number, kind: "move" | "resize", e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const obj = state.objects.find((o) => o.id === id);
-    if (!obj) return;
-    onSelectObject(id);
-    onSelectZone(null);
-    objDrag.current = { id, kind, startPointer: toImage(e), startBox: obj.box };
-  };
-
-  const moveObjectDrag = (e: React.PointerEvent) => {
-    const d = objDrag.current;
-    if (!d) return;
-    const p = toImage(e);
-    let box: Box;
-    if (d.kind === "resize") {
-      box = resizeBox(d.startBox, p, 24 * px);
-    } else {
-      // keep the whole box inside the frame
-      const dx = Math.min(Math.max(p[0] - d.startPointer[0], -d.startBox[0]), w - d.startBox[2]);
-      const dy = Math.min(Math.max(p[1] - d.startPointer[1], -d.startBox[1]), h - d.startBox[3]);
-      box = moveBox(d.startBox, dx, dy);
-    }
-    setLiveBox({ id: d.id, box });
-    if (liveDrag) onDragObject(d.id, box);
-  };
-
-  const endObjectDrag = () => {
-    const d = objDrag.current;
-    objDrag.current = null;
-    if (!d || !liveBox || liveBox.id !== d.id) return setLiveBox(null);
-    setLiveBox(null);
-    onDropObject(d.id, liveBox.box);
-  };
-
   const hint = !drawing
-    ? state.live
-      ? "Live: the boxes are tracks from the video. Click a zone to select it, or press Z to draw one."
-      : selectedObject !== null
-        ? "Drag the box to move it. The dot at its bottom centre is what zones test; the square resizes."
-        : selected
-          ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
-          : "Click a zone to select it, or drag a mock object across one. Press Z to draw."
+    ? selected
+      ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
+      : state.source
+        ? "Click a zone to select it, or press Z to draw one."
+        : "Load a video clip or connect a camera. You can draw zones on this frame meanwhile (press Z)."
     : draft.length === 0
       ? "Click to place the first corner. Add as many corners as the floor area needs."
       : draft.length < 3
@@ -230,24 +169,24 @@ export function Stage({
             cursor: drawing ? "crosshair" : "default",
           }}
           role="img"
-          aria-label={`Camera ${state.camera_id} reference frame with ${state.zones.length} zones`}
+          aria-label={`Camera ${state.camera_id} with ${state.zones.length} zones`}
           onPointerDown={onPointerDown}
           onPointerMove={(e) => drawing && setCursor(toImage(e))}
           onPointerLeave={() => setCursor(null)}
         >
-          {state.live ? (
+          {state.source ? (
             // a motion JPEG only plays in an <img>, and SVG <image> would show one frame
             <foreignObject width={w} height={h} style={{ pointerEvents: "none" }}>
               {/* next/image cannot play a motion JPEG */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/api/live/stream"
+                src={`/api/live/stream?v=${state.frame_version}`}
                 alt=""
                 style={{ display: "block", width: "100%", height: "100%" }}
               />
             </foreignObject>
           ) : (
-            <image href="/api/frame" width={w} height={h} />
+            <image href={`/api/frame?v=${state.frame_version}`} width={w} height={h} />
           )}
           <ZoneLayer
             zones={zones}
@@ -279,15 +218,7 @@ export function Stage({
               onEnd={endVertexDrag}
             />
           )}
-          <ObjectLayer
-            objects={objects}
-            selectedId={selectedObject}
-            px={px}
-            interactive={!drawing && !state.live}
-            onStart={startObjectDrag}
-            onMove={moveObjectDrag}
-            onEnd={endObjectDrag}
-          />
+          <ObjectLayer objects={state.objects} px={px} />
           <DraftLayer
             points={draft}
             cursor={cursor}

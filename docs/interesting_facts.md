@@ -42,7 +42,7 @@ Point-in-polygon with hysteresis (an object must stay in or out for K frames bef
 *Evidence:* `packages/palletvision-zones`, `tests/golden/zones/`.
 
 ### 8. A working full-stack demo
-FastAPI with live server-sent events and a Next.js UI where you draw multi-corner zones, drag mock bounding boxes across them, and watch join and leave events stream into Postgres, with warnings when a zone version was not stored.
+FastAPI with live server-sent events and a Next.js UI where you load a video or camera, draw multi-corner zones, and watch pallets tracked by ByteTrack enter and leave them, with the events streaming into Postgres and warnings when a zone version was not stored.
 
 ### 9. Engineering discipline
 Conventional commits, pre-commit hooks, strict typing (it caught 32 type errors in new code before CI would have), and an issue-driven workflow: scoped issues with "done when" criteria, PRs that close them, and a documented backlog for the rest of the build. Design docs include a 55 KB step-by-step implementation guide and diagrams written for non-technical readers.

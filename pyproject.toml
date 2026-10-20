@@ -39,5 +39,11 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages"]
+# A few training tests import helpers from test files in other folders (test_sordi, test_checkpoint).
+# Listing those folders keeps that working when a folder is run alone, as the CI jobs do.
+pythonpath = [
+  "packages/palletvision-train/tests/checkpoints",
+  "packages/palletvision-train/tests/datasets",
+]
 addopts = "-ra -m 'not slow'"
 markers = ["slow: takes about a minute or more; run with `uv run pytest -m slow`"]

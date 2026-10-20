@@ -5,13 +5,15 @@ import psycopg
 from fastapi.testclient import TestClient
 
 from palletvision_demo.app import create_app
+from palletvision_demo.live.state import DemoState, Result
 from palletvision_demo.settings import Settings
 from palletvision_events.storage.zone_store import ZoneConfigStore
 from palletvision_zones.config import Zone, ZoneConfig
+from palletvision_zones.engine import Track
 
 ZONE_A = {"id": "zone_a", "polygon": [[100, 100], [500, 120], [480, 400], [80, 380]]}
 ZONE_B = {"id": "zone_b", "polygon": [[700, 100], [1000, 100], [1000, 400], [700, 400]]}
-BOX_IN_A = [250.0, 260.0, 330.0, 330.0]  # ground point (290, 330) is inside zone_a
+BOX_IN_A = (250.0, 260.0, 330.0, 330.0)  # ground point (290, 330) is inside zone_a
 
 
 def client(tmp_path: Path, db_url: str, sink: str = "postgres") -> TestClient:
@@ -23,6 +25,12 @@ def client(tmp_path: Path, db_url: str, sink: str = "postgres") -> TestClient:
         db_url=db_url,
     )
     return TestClient(create_app(settings))
+
+
+def track_into_a(c: TestClient) -> Result:
+    """One frame in which a tracked pallet stands inside zone_a."""
+    state: DemoState = c.app.state.demo  # type: ignore[attr-defined]
+    return state.apply_tracks([Track(1, "pallet_unknown", BOX_IN_A)], [])
 
 
 def rows(db_url: str, sql: str) -> list[tuple[Any, ...]]:
@@ -45,7 +53,7 @@ def test_events_join_to_the_polygons_they_were_computed_against(
 ) -> None:
     c = client(tmp_path, db_url)
     c.put("/api/zones", json={"zones": [ZONE_A]})  # version 2
-    c.post("/api/objects", json={"object_type": "pallet_type_a", "box": BOX_IN_A})
+    track_into_a(c)
     c.put("/api/zones", json={"zones": [ZONE_B]})  # version 3: zone_a is gone
     joined = rows(
         db_url,
@@ -70,8 +78,7 @@ def test_zones_loaded_from_the_database_keep_their_version(tmp_path: Path, db_ur
     store.save(ZoneConfig("camA", (1280, 720), (Zone("zone_a", polygon),), version=3))
     store.close()
     c = client(tmp_path, db_url)
-    res = c.post("/api/objects", json={"object_type": "pallet_type_a", "box": BOX_IN_A})
-    assert res.json()["config_error"] is None
+    assert track_into_a(c).config_error is None
     assert rows(db_url, "SELECT version FROM zone_configs") == [(3,)]  # not stored a second time
     assert rows(db_url, "SELECT config_version FROM events") == [(3,)]
     assert c.put("/api/zones", json={"zones": [ZONE_A]}).json()["version"] == 4
@@ -91,5 +98,4 @@ def test_other_sinks_do_not_touch_the_database(tmp_path: Path) -> None:
     c = client(tmp_path, "postgresql://u:p@127.0.0.1:1/none", sink="jsonl")
     res = c.put("/api/zones", json={"zones": [ZONE_A]})
     assert res.json()["config_error"] is None
-    obj = c.post("/api/objects", json={"object_type": "pallet_type_a", "box": BOX_IN_A}).json()
-    assert obj["config_error"] is None
+    assert track_into_a(c).config_error is None

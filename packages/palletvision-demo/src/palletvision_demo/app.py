@@ -1,40 +1,37 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from palletvision_demo.live.runner import LiveRunner
-from palletvision_demo.live.state import (
-    DemoState,
-    ObjectInputError,
-    Result,
-    UnknownObjectError,
-    ZoneInputError,
+from palletvision_demo.live.runner import (
+    LivePlayer,
+    camera_label,
+    parse_camera,
+    redact,
+    source_kind,
 )
+from palletvision_demo.live.state import DemoState, Result, ZoneInputError
 from palletvision_demo.live.stream import sse_lines
 from palletvision_demo.settings import Settings
 from palletvision_infer.backends import OnnxRuntimeBackend
 from palletvision_infer.detections import Detector
 
 BOUNDARY = "frame"
+VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm"}
+NO_MODEL = "No model is loaded. Start pv-demo with --weights path/to/model.onnx."
 
 
 class ZonesBody(BaseModel):
     zones: list[dict[str, Any]]
 
 
-class NewObject(BaseModel):
-    object_type: str
-    box: list[float]
-
-
-class ObjectUpdate(BaseModel):
-    object_type: str | None = None
-    box: list[float] | None = None
+class CameraBody(BaseModel):
+    device: str
 
 
 def _result(result: Result) -> dict[str, Any]:
@@ -46,24 +43,36 @@ def _result(result: Result) -> dict[str, Any]:
 
 
 def create_app(settings: Settings | None = None, detector: Detector | None = None) -> FastAPI:
-    """With ``settings.weights`` the source video is tracked live; ``detector`` replaces the ONNX
-    model it would load (for tests)."""
+    """With ``settings.weights`` a video or camera can be tracked live. ``detector`` replaces
+    the ONNX model that would be loaded from them (for tests)."""
     settings = settings or Settings()
     state = DemoState(settings)
-    runner: LiveRunner | None = None
+    player: LivePlayer | None = None
     if settings.weights is not None:
-        if settings.source is None:
-            raise ValueError("live tracking needs --source, the video to run on")
         detector = detector or OnnxRuntimeBackend(settings.weights, conf=settings.conf)
-        runner = LiveRunner(state, detector, settings)
+        player = LivePlayer(state, detector, settings)
+
+    def need_player() -> LivePlayer:
+        if player is None:
+            raise HTTPException(status_code=409, detail=NO_MODEL)
+        return player
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        if runner:
-            runner.start()
+        if player and settings.source:
+            kind = source_kind(settings.source)
+            source: int | str = settings.source
+            name = Path(settings.source).name
+            if kind == "camera":
+                source = parse_camera(settings.source)
+                name = camera_label(source)
+            try:
+                await asyncio.to_thread(player.start, source, kind, name)
+            except OSError as exc:
+                state.set_source(kind, name, "error", redact(str(exc)))
         yield
-        if runner:
-            await asyncio.to_thread(runner.stop)
+        if player:
+            await asyncio.to_thread(player.stop)
 
     app = FastAPI(
         title="palletvision demo",
@@ -73,7 +82,7 @@ def create_app(settings: Settings | None = None, detector: Detector | None = Non
     )
     app.state.settings = settings
     app.state.demo = state
-    app.state.runner = runner
+    app.state.player = player
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -81,6 +90,7 @@ def create_app(settings: Settings | None = None, detector: Detector | None = Non
 
     @app.get("/api/frame")
     def frame() -> Response:
+        """The frame zones are drawn on. The UI asks with ``?v=`` so a new source is not cached."""
         return Response(
             state.frame_jpeg, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"}
         )
@@ -108,6 +118,62 @@ def create_app(settings: Settings | None = None, detector: Detector | None = Non
     def get_state() -> dict[str, object]:
         return state.snapshot()
 
+    @app.put("/api/source/video")
+    async def upload_video(request: Request, name: str) -> dict[str, object]:
+        """Save a video sent as the raw request body, then play it."""
+        live = need_player()
+        safe = Path(name).name  # a bare file name, never a path
+        if not safe or safe.startswith(".") or Path(safe).suffix.lower() not in VIDEO_SUFFIXES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"choose a video file ({', '.join(sorted(VIDEO_SUFFIXES))})",
+            )
+        settings.upload_dir.mkdir(parents=True, exist_ok=True)
+        dest = settings.upload_dir / safe
+        part = dest.with_name(dest.name + ".part")
+        size = 0
+        try:
+            with part.open("wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    await asyncio.to_thread(out.write, chunk)
+            if size == 0:
+                raise HTTPException(status_code=422, detail="that file is empty")
+            part.replace(dest)
+        except BaseException:  # empty, or the browser gave up halfway: leave no half file
+            part.unlink(missing_ok=True)
+            raise
+        try:
+            await asyncio.to_thread(live.start, str(dest), "video", safe)
+        except OSError as exc:
+            dest.unlink(missing_ok=True)  # not a video: do not keep it
+            raise HTTPException(
+                status_code=422, detail=f"cannot play that video: {redact(str(exc))}"
+            ) from exc
+        return state.snapshot()
+
+    @app.post("/api/source/camera")
+    async def connect_camera(body: CameraBody) -> dict[str, object]:
+        live = need_player()
+        try:
+            source = parse_camera(body.device)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        label = camera_label(source)
+        try:
+            await asyncio.to_thread(live.start, source, "camera", label)
+        except OSError as exc:
+            # not the library's message: for a stream URL it can carry the password
+            raise HTTPException(
+                status_code=422, detail=f"cannot open {label}. Is it connected and allowed?"
+            ) from exc
+        return state.snapshot()
+
+    @app.delete("/api/source")
+    async def eject_source() -> dict[str, object]:
+        await asyncio.to_thread(need_player().eject)
+        return state.snapshot()
+
     @app.put("/api/zones")
     def put_zones(body: ZonesBody) -> dict[str, object]:
         try:
@@ -115,32 +181,6 @@ def create_app(settings: Settings | None = None, detector: Detector | None = Non
         except ZoneInputError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {**state.snapshot(), **_result(result)}
-
-    @app.post("/api/objects")
-    def add_object(body: NewObject) -> dict[str, Any]:
-        try:
-            obj, result = state.add_object(body.object_type, body.box)
-        except ObjectInputError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {"object": state.object_dict(obj), **_result(result)}
-
-    @app.put("/api/objects/{object_id}")
-    def update_object(object_id: int, body: ObjectUpdate) -> dict[str, Any]:
-        try:
-            obj, result = state.update_object(object_id, body.box, body.object_type)
-        except ObjectInputError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except UnknownObjectError as exc:
-            raise HTTPException(status_code=404, detail="unknown object") from exc
-        return {"object": state.object_dict(obj), **_result(result)}
-
-    @app.delete("/api/objects/{object_id}")
-    def delete_object(object_id: int) -> dict[str, Any]:
-        try:
-            result = state.delete_object(object_id)
-        except UnknownObjectError as exc:
-            raise HTTPException(status_code=404, detail="unknown object") from exc
-        return _result(result)
 
     @app.get("/api/events")
     def recent_events(limit: int = 100) -> dict[str, Any]:

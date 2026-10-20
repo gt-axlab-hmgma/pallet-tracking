@@ -7,7 +7,7 @@ const display = Familjen_Grotesk({ variable: "--font-display", subsets: ["latin"
 
 export const metadata: Metadata = {
   title: "Pallet zones",
-  description: "Draw zones, drag mock pallets across them and watch the join/leave events.",
+  description: "Load a video or camera, draw zones and watch pallets enter and leave them.",
 };
 
 // Runs before first paint so a stored theme choice does not flash the wrong palette.

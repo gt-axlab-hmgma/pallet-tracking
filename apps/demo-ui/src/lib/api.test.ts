@@ -49,7 +49,7 @@ describe("api", () => {
 
   it("joins FastAPI validation messages", async () => {
     mockFetch(422, { detail: [{ msg: "Field required" }, { msg: "bad box" }] });
-    await expect(api.addObject("x", [0, 0, 1, 1])).rejects.toThrow("Field required; bad box");
+    await expect(api.connectCamera("x")).rejects.toThrow("Field required; bad box");
   });
 
   it("explains when the API is unreachable", async () => {
@@ -62,10 +62,32 @@ describe("api", () => {
     expect(err.message).toContain("pv-demo");
   });
 
-  it("uses DELETE for objects and unwraps recent events", async () => {
-    const fn = mockFetch(200, { events: [], sink_error: null });
-    await api.deleteObject(3);
-    expect((fn.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe("DELETE");
+  it("sends a video as the raw body with its name in the query", async () => {
+    const fn = mockFetch(200, { source: null });
+    const file = new File(["frames"], "dock 3 & 4.mp4", { type: "video/mp4" });
+    await api.uploadVideo(file);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/source/video?name=dock%203%20%26%204.mp4");
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBe(file);
+    expect(init.headers).toEqual({ "Content-Type": "application/octet-stream" });
+  });
+
+  it("connects a camera with a JSON body and stops a source with DELETE", async () => {
+    const fn = mockFetch(200, { source: null });
+    await api.connectCamera("rtsp://cam.local/stream");
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/source/camera");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ device: "rtsp://cam.local/stream" });
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
+    await api.stopSource();
+    const [stopUrl, stopInit] = fn.mock.calls[1] as unknown as [string, RequestInit];
+    expect(stopUrl).toBe("/api/source");
+    expect(stopInit.method).toBe("DELETE");
+  });
+
+  it("unwraps recent events", async () => {
     mockFetch(200, { events: [{ event_id: "e" }] });
     expect(await api.recentEvents(5)).toEqual([{ event_id: "e" }]);
   });
