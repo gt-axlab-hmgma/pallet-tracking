@@ -1744,6 +1744,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "palletvision-events" },
     { name = "palletvision-infer" },
+    { name = "palletvision-track" },
     { name = "palletvision-zones" },
     { name = "uvicorn" },
 ]
@@ -1753,6 +1754,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "palletvision-events", editable = "packages/palletvision-events" },
     { name = "palletvision-infer", editable = "packages/palletvision-infer" },
+    { name = "palletvision-track", editable = "packages/palletvision-track" },
     { name = "palletvision-zones", editable = "packages/palletvision-zones" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
