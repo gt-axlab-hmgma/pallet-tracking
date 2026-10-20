@@ -18,7 +18,7 @@ def placeholder_frame(width: int = 1280, height: int = 720) -> np.ndarray:
         y = int(horizon + (height - horizon) * (k / 13) ** 1.8)
         cv2.line(img, (0, y), (width, y), (88, 82, 74), 1, cv2.LINE_AA)
     cv2.putText(
-        img, "placeholder floor: pass --source to use a real frame", (24, height - 24),
+        img, "no source yet: load a video clip or connect a camera", (24, height - 24),
         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 144, 136), 1, cv2.LINE_AA,
     )  # fmt: skip
     return img
