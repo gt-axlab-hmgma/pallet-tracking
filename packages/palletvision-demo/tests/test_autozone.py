@@ -1,26 +1,36 @@
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from palletvision_demo.live.autozone import Polygon, propose_zones
+from palletvision_demo.live.autozone import (
+    AutoZoneParams,
+    Polygon,
+    find_zones,
+    propose_zones,
+    sample_paint,
+)
 from palletvision_zones.geometry import point_in_polygon, validate_polygon
 
 REPO = Path(__file__).parents[3]
 CLIP = REPO / "data/infer/gemini_generated_video_a2c2e4ab.mp4"
 
+
+def bgr(hue: int, value: int = 190, saturation: int = 90) -> tuple[int, int, int]:
+    """A color of the given OpenCV hue (0-179), saturation and value as a BGR triple."""
+    pixel = cv2.cvtColor(np.array([[[hue, saturation, value]]], np.uint8), cv2.COLOR_HSV2BGR)[0, 0]
+    return int(pixel[0]), int(pixel[1]), int(pixel[2])
+
+
 # The paint color of the test footage (hue 27 of 179, pale), and a tan that is not paint.
-PAINT = tuple(
-    int(v) for v in cv2.cvtColor(np.array([[[27, 90, 190]]], np.uint8), cv2.COLOR_HSV2BGR)[0, 0]
-)
-CARDBOARD = tuple(
-    int(v) for v in cv2.cvtColor(np.array([[[17, 90, 185]]], np.uint8), cv2.COLOR_HSV2BGR)[0, 0]
-)
+PAINT = bgr(27)
+CARDBOARD = bgr(17, 185)
 FLOOR = (128, 130, 126)
 
 
-def floor_with_bays(scale: float = 1.0) -> np.ndarray:
+def floor_with_bays(scale: float = 1.0, paint: tuple[int, int, int] = PAINT) -> np.ndarray:
     """A grey floor with two bays side by side, painted as seen from an angled camera.
 
     The base line runs along the front, and three lines stand on it: the left wall of the first
@@ -34,7 +44,7 @@ def floor_with_bays(scale: float = 1.0) -> np.ndarray:
             img,
             (round(a[0] * scale), round(a[1] * scale)),
             (round(b[0] * scale), round(b[1] * scale)),
-            PAINT,
+            paint,
             width,
             cv2.LINE_AA,
         )
@@ -87,6 +97,67 @@ def test_a_bay_stops_where_both_of_its_walls_are_still_seen() -> None:
     cv2.rectangle(img, (560, 270), (680, 400), FLOOR, -1)
     first, _ = propose_zones(img)
     assert min(y for _, y in first) >= 395  # cut at the lower of the two tops, never stretched up
+
+
+@pytest.mark.parametrize("hue", [5, 27, 60, 110, 150, 178])  # red (both ends), yellow, green, blue
+def test_the_paint_color_is_found_from_the_frame(hue: int) -> None:
+    assert len(propose_zones(floor_with_bays(paint=bgr(hue)))) == 2
+
+
+def test_a_color_given_by_the_user_is_used_instead_of_searching() -> None:
+    img = floor_with_bays(paint=bgr(110))
+    assert len(propose_zones(img, replace(AutoZoneParams(), hue=110))) == 2
+    assert propose_zones(img, replace(AutoZoneParams(), hue=27)) == []  # no paint of that color
+
+
+def test_sensor_noise_does_not_hide_the_paint() -> None:
+    rng = np.random.default_rng(0)
+    noisy = floor_with_bays().astype(np.float32) + rng.normal(0, 10, (720, 1280, 3))
+    assert len(propose_zones(np.clip(noisy, 0, 255).astype(np.uint8))) == 2
+
+
+BASE_LINE_POINT = (450.0, 605.0)  # on the base line of floor_with_bays()
+
+
+def test_a_clicked_line_gives_the_paint_color_and_floors_to_match() -> None:
+    params = sample_paint(floor_with_bays(paint=bgr(110)), *BASE_LINE_POINT)
+    assert params is not None and params.hue is not None
+    assert abs(params.hue - 110) <= 2
+    assert params.min_saturation < 90 and params.min_value < 190  # a share below what was read
+
+
+def test_paint_that_looks_pale_to_the_camera_is_found_by_the_looser_retry() -> None:
+    img = floor_with_bays(paint=bgr(27, value=150, saturation=32))
+    assert propose_zones(img, replace(AutoZoneParams(), fallback_floors=())) == []  # strict only
+    assert len(propose_zones(img)) == 2  # the default retries with looser floors
+
+
+def test_the_retry_does_not_run_when_the_strict_pass_already_found_bays() -> None:
+    img = floor_with_bays()
+    strict = propose_zones(img, replace(AutoZoneParams(), fallback_floors=()))
+    assert propose_zones(img) == strict
+
+
+def test_a_click_on_paler_paint_than_the_floors_allow_still_gives_working_settings() -> None:
+    img = floor_with_bays(paint=bgr(27, value=150, saturation=28))
+    params = sample_paint(img, *BASE_LINE_POINT)
+    assert params is not None and params.min_saturation <= 16
+    assert len(propose_zones(img, params)) == 2
+
+
+def test_a_click_on_the_grey_floor_or_outside_the_frame_gives_no_color() -> None:
+    img = floor_with_bays()
+    assert sample_paint(img, 100.0, 100.0) is None  # floor
+    assert sample_paint(img, -5.0, 10.0) is None
+    assert sample_paint(img, 5000.0, 10.0) is None
+
+
+def test_the_clicked_color_is_the_one_used_even_when_another_color_is_stronger() -> None:
+    img = floor_with_bays(paint=bgr(27))  # the bays are yellow...
+    cv2.rectangle(img, (1000, 100), (1200, 140), bgr(110), -1)  # ...and a blue strip elsewhere
+    params = sample_paint(img, *BASE_LINE_POINT)
+    assert params is not None and params.hue is not None and abs(params.hue - 27) <= 2
+    assert len(propose_zones(img, params)) == 2
 
 
 def test_a_pillar_and_cardboard_add_no_zone() -> None:
@@ -178,3 +249,21 @@ def test_the_first_frame_of_the_generated_clip_gives_the_bay_on_the_floor() -> N
     assert inside((680.0, 450.0))  # the empty floor of bay 16
     assert inside((1080.0, 450.0))  # bay 14, whose right wall is hidden but for its foot
     assert not inside((700.0, 40.0))  # the yellow cages on the back wall
+
+
+@pytest.mark.parametrize("hue", [5, 27, 60, 110, 175])
+def test_the_proposal_says_which_paint_color_it_found(hue: int) -> None:
+    found = find_zones(floor_with_bays(paint=bgr(hue)))
+    assert found.hue is not None
+    assert min(abs(found.hue - hue), 180 - abs(found.hue - hue)) <= 4  # hue is a circle
+    assert found.polygons == propose_zones(floor_with_bays(paint=bgr(hue)))
+
+
+def test_a_pinned_color_is_the_one_reported() -> None:
+    found = find_zones(floor_with_bays(paint=bgr(110)), replace(AutoZoneParams(), hue=110))
+    assert found.hue == 110 and len(found.polygons) == 2
+
+
+def test_no_bays_means_no_color_either() -> None:
+    found = find_zones(np.full((720, 1280, 3), FLOOR, np.uint8))
+    assert found.polygons == [] and found.hue is None
