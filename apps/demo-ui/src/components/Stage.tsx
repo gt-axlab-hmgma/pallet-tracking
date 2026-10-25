@@ -6,11 +6,19 @@ import type { DemoState, Point } from "@/lib/types";
 import { DraftLayer } from "./DraftLayer";
 import type { Mode } from "./Toolbar";
 import { ObjectLayer } from "./ObjectLayer";
+import { ProposalLayer } from "./ProposalLayer";
 import { VertexHandles } from "./VertexHandles";
 import { ZoneLayer } from "./ZoneLayer";
 
 interface Props {
   state: DemoState;
+  /** Zones proposed from the floor lines, shown dashed until they are added or discarded. */
+  proposal: Point[][];
+  /** The colour to draw the proposal in, chosen to contrast with the floor paint. */
+  proposalColor: string;
+  /** True while the user is choosing a painted line to read the paint colour from. */
+  picking: boolean;
+  onPick: (point: Point) => void;
   mode: Mode;
   selectedZone: string | null;
   onSelectZone: (id: string | null) => void;
@@ -27,6 +35,10 @@ function isTyping(target: EventTarget | null) {
 /** The camera frame with zones on top. SVG user units are image pixels, so coordinates are 1:1. */
 export function Stage({
   state,
+  proposal,
+  proposalColor,
+  picking,
+  onPick,
   mode,
   selectedZone,
   onSelectZone,
@@ -120,6 +132,10 @@ export function Stage({
     draft.length >= 3 && distance(p, draft[0]) <= CLOSE_RADIUS_PX * px;
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (picking) {
+      onPick(toImage(e));
+      return;
+    }
     if (!drawing) {
       onSelectZone(null);
       return;
@@ -143,17 +159,19 @@ export function Stage({
     );
   };
 
-  const hint = !drawing
-    ? selected
-      ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
-      : state.source
-        ? "Click a zone to select it, or press Z to draw one."
-        : "Load a video clip or connect a camera. You can draw zones on this frame meanwhile (press Z)."
-    : draft.length === 0
-      ? "Click to place the first corner. Add as many corners as the floor area needs."
-      : draft.length < 3
-        ? "Keep clicking to add corners. Backspace removes the last one, Esc cancels."
-        : "Click the first point or press Enter to close. Backspace undoes, Esc cancels.";
+  const hint = picking
+    ? "Click on a painted line to read its color. Esc cancels."
+    : !drawing
+      ? selected
+        ? "Drag a corner to reshape the zone. Delete removes it, double-click its name to rename."
+        : state.source
+          ? "Click a zone to select it, or press Z to draw one."
+          : "Load a video clip or connect a camera. You can draw zones on this frame meanwhile (press Z)."
+      : draft.length === 0
+        ? "Click to place the first corner. Add as many corners as the floor area needs."
+        : draft.length < 3
+          ? "Keep clicking to add corners. Backspace removes the last one, Esc cancels."
+          : "Click the first point or press Enter to close. Backspace undoes, Esc cancels.";
 
   return (
     <div className="relative grid h-full grid-rows-[1fr_auto]">
@@ -166,7 +184,7 @@ export function Stage({
             aspectRatio: `${w} / ${h}`,
             width: "100%",
             height: "auto",
-            cursor: drawing ? "crosshair" : "default",
+            cursor: drawing || picking ? "crosshair" : "default",
           }}
           role="img"
           aria-label={`Camera ${state.camera_id} with ${state.zones.length} zones`}
@@ -218,6 +236,7 @@ export function Stage({
               onEnd={endVertexDrag}
             />
           )}
+          <ProposalLayer polygons={proposal} px={px} color={proposalColor} />
           <ObjectLayer objects={state.objects} px={px} />
           <DraftLayer
             points={draft}

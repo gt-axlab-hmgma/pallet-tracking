@@ -10,6 +10,30 @@ function mockFetch(status: number, body: unknown) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("api", () => {
+  it("asks for proposed zones with a POST and no body", async () => {
+    const proposal = {
+      frame_version: 3,
+      polygons: [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+        ],
+      ],
+    };
+    const fn = mockFetch(200, proposal);
+    expect(await api.autoZones()).toEqual(proposal);
+    const [url, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/zones/auto");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("passes on the reason when there is no frame to propose from", async () => {
+    mockFetch(422, { detail: "Load a video clip or connect a camera first." });
+    await expect(api.autoZones()).rejects.toThrow("Load a video clip or connect a camera first.");
+  });
+
   it("sends zones as a JSON PUT", async () => {
     const fn = mockFetch(200, { zones: [], events: [], sink_error: null });
     await api.saveZones([
@@ -90,5 +114,20 @@ describe("api", () => {
   it("unwraps recent events", async () => {
     mockFetch(200, { events: [{ event_id: "e" }] });
     expect(await api.recentEvents(5)).toEqual([{ event_id: "e" }]);
+  });
+});
+
+describe("api auto zones with a clicked point", () => {
+  it("sends the point on the line as x and y in a JSON body", async () => {
+    const fn = mockFetch(200, { frame_version: 1, polygons: [], hue: null });
+    await api.autoZones([450, 605]);
+    const [, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ x: 450, y: 605 });
+  });
+
+  it("passes on the reason when the spot is not paint", async () => {
+    mockFetch(422, { detail: "That spot is not coloured. Click on the painted line itself." });
+    await expect(api.autoZones([10, 10])).rejects.toThrow("not coloured");
   });
 });

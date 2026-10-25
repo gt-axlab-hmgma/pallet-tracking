@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDemo } from "@/hooks/useDemo";
 import { useEventStream } from "@/hooks/useEventStream";
+import { addProposed, contrastColor, proposalFor } from "@/lib/autozone";
 import { nextZoneId } from "@/lib/geometry";
 import type { Point } from "@/lib/types";
+import { AutoZonePanel } from "./AutoZonePanel";
 import { EventFeed } from "./EventFeed";
 import { NoticeBar } from "./NoticeBar";
 import { Stage } from "./Stage";
@@ -19,7 +21,13 @@ export function Workspace() {
   const status = useEventStream(demo.pushEvent, demo.backfillEvents);
   const [mode, setMode] = useState<Mode>("select");
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
-  const { state, saveZones } = demo;
+  const [picking, setPicking] = useState(false);
+  const { state, saveZones, proposal, discardProposal, proposeZones } = demo;
+  const frameVersion = state?.frame_version;
+  const proposed = useMemo(
+    () => (frameVersion === undefined ? [] : proposalFor(proposal, frameVersion)),
+    [proposal, frameVersion],
+  );
 
   const createZone = useCallback(
     (polygon: Point[]) => {
@@ -31,6 +39,22 @@ export function Workspace() {
     },
     [state, saveZones],
   );
+
+  const pickColor = useCallback(
+    (point: Point) => {
+      setPicking(false);
+      void proposeZones(point);
+    },
+    [proposeZones],
+  );
+
+  const proposalColor = contrastColor(proposal?.hue ?? null);
+
+  const addProposal = useCallback(() => {
+    if (!state || proposed.length === 0) return;
+    saveZones(addProposed(state.zones, proposed));
+    discardProposal();
+  }, [state, proposed, saveZones, discardProposal]);
 
   const editZone = useCallback(
     (id: string, polygon: Point[]) => {
@@ -66,7 +90,8 @@ export function Workspace() {
       const t = e.target;
       if (t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "v" || e.key === "V") setMode("select");
+      if (e.key === "Escape") setPicking(false);
+      else if (e.key === "v" || e.key === "V") setMode("select");
       else if (e.key === "z" || e.key === "Z") setMode("draw");
       else if ((e.key === "Delete" || e.key === "Backspace") && mode === "select" && selectedZone) {
         e.preventDefault();
@@ -97,6 +122,23 @@ export function Workspace() {
           )}
           <Toolbar mode={mode} onChange={setMode} />
           {state && (
+            <AutoZonePanel
+              proposed={proposed.length}
+              busy={demo.proposing}
+              picking={picking}
+              onFind={() => {
+                setPicking(false);
+                void proposeZones();
+              }}
+              onPick={() => {
+                setMode("select");
+                setPicking((on) => !on);
+              }}
+              onAdd={addProposal}
+              onDiscard={discardProposal}
+            />
+          )}
+          {state && (
             <ZonePanel
               zones={state.zones}
               objects={state.objects}
@@ -117,6 +159,10 @@ export function Workspace() {
             {state ? (
               <Stage
                 state={state}
+                proposal={proposed}
+                proposalColor={proposalColor}
+                picking={picking}
+                onPick={pickColor}
                 mode={mode}
                 selectedZone={selectedZone}
                 onSelectZone={setSelectedZone}

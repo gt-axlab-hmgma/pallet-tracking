@@ -23,6 +23,14 @@ export interface SourceStatus {
   message: string | null;
 }
 
+/** Zones the painted floor lines suggest, for the frame with this `frame_version`. */
+export interface ZoneProposal {
+  frame_version: number;
+  polygons: Point[][];
+  /** The paint colour the bays were found with, as an OpenCV hue (0-179); null if none. */
+  hue: number | null;
+}
+
 export interface DemoState {
   camera_id: string;
   device_id: string;
