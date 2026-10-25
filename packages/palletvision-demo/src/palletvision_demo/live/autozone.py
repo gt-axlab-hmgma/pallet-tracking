@@ -7,7 +7,9 @@ same polygons.
 
 The idea, in the order it runs:
 
-1. Keep the pixels whose color is the paint color (a hue band in HSV).
+1. Smooth the frame a little, then keep the pixels whose color is the paint color (a hue band
+   in HSV). Unless told the color, find it: try every hue and keep the one that makes the
+   strongest bay structure in the next steps.
 2. Drop what is too wide to be a painted strip (pillars) and what is too small (specks).
 3. Fit straight segments to what is left and join the ones that lie on the same line, so a line
    that a pallet hides in the middle comes back as one line.
@@ -22,7 +24,7 @@ The pixel sizes below are for a 1280 pixel wide frame and are scaled to the real
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -35,15 +37,26 @@ Polygon = list[tuple[int, int]]
 Pt = tuple[float, float]
 
 REFERENCE_WIDTH = 1280  # the frame width the pixel sizes in AutoZoneParams are written for
+MIN_CLICKED_SATURATION = 25  # a clicked spot paler than this is floor, not paint
 
 
 @dataclass(frozen=True)
 class AutoZoneParams:
-    # What the paint looks like, in OpenCV HSV (hue 0-179). The default is the pale yellow seen
-    # on the test footage; cardboard and the forklift sit below it (hue about 17-18).
-    hue: tuple[int, int] = (22, 33)
+    # What the paint looks like, in OpenCV HSV (hue 0-179, a circle: red is at both ends). With
+    # ``hue`` left as None the color is found from the frame itself: every hue is tried, and the
+    # one that gives the strongest bay structure (long base lines with walls standing on them)
+    # wins. Set it to use one known color, for example 27 for the pale yellow of the test footage.
+    hue: int | None = None
+    hue_half_width: int = 6
+    hue_step: int = 3  # how far apart the hues tried in the search are
+    search_width: int = 640  # the search runs on a frame scaled down to this width, for speed
     min_saturation: int = 45
     min_value: int = 110
+    # When the color is searched for and nothing is found, these (saturation, value) floors are
+    # tried in turn. A camera that sees the paint paler or darker than the usual footage, such as
+    # a photo of a screen, needs them; a frame that already works never reaches them.
+    fallback_floors: tuple[tuple[int, int], ...] = ((25, 90),)
+    blur_sigma: float = 0.8  # smoothing before the color test, so sensor noise cannot break it
     # Pixel sizes at REFERENCE_WIDTH.
     max_stroke_half_width: float = 9.0  # fatter than this is a pillar, not a painted strip
     min_blob_area: float = 200.0
@@ -96,40 +109,145 @@ class _Line:
         return self.q if self.p[1] >= self.q[1] else self.p
 
 
+@dataclass(frozen=True)
+class Proposal:
+    """The bays found, and the hue (OpenCV 0-179) of the paint they were found with."""
+
+    polygons: list[Polygon]
+    hue: int | None
+
+
 def propose_zones(image: Frame, params: AutoZoneParams | None = None) -> list[Polygon]:
     """Bays found in a BGR frame, as integer polygons ordered left to right.
 
     Returns an empty list when there is no paint to find. Every polygon passes the same checks as
     a drawn zone, so it can be sent to the zones API as it is.
     """
+    return find_zones(image, params).polygons
+
+
+def find_zones(image: Frame, params: AutoZoneParams | None = None) -> Proposal:
+    """Like ``propose_zones``, and also says which paint colour the bays were found with.
+
+    The colour lets the caller draw the zones in one that stands out from the paint.
+    """
     if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
         raise ValueError("expected a BGR image of shape (height, width, 3) and type uint8")
     params = params or AutoZoneParams()
+    smoothed = _smooth(image, params)
+    attempts = [params]
+    if params.hue is None:  # a known color has nothing to retry
+        attempts += [
+            replace(params, min_saturation=s, min_value=v) for s, v in params.fallback_floors
+        ]
+    for attempt in attempts:
+        hue = attempt.hue if attempt.hue is not None else _find_paint_hue(smoothed, attempt)
+        if hue is None:
+            continue
+        polygons = [polygon for polygon, _ in _bays_of_color(smoothed, hue, attempt)]
+        if polygons:
+            polygons = _drop_duplicates(polygons, attempt.duplicate_overlap)
+            polygons = sorted(
+                polygons, key=lambda poly: (min(x for x, _ in poly), min(y for _, y in poly))
+            )
+            return Proposal(polygons, hue)
+    return Proposal([], None)
+
+
+def sample_paint(
+    image: Frame, x: float, y: float, params: AutoZoneParams | None = None
+) -> AutoZoneParams | None:
+    """The settings for the paint colour under the point (x, y), which the user clicked.
+
+    Reading the colour from the line itself needs no guess about the camera, the lighting or how
+    pale the paint looks. The hue is the one under the click, and the saturation and brightness
+    floors are set a fixed share below what was read, so a paler or darker stretch of the same
+    paint still counts. Returns None if the point is outside the frame or not coloured (a grey
+    floor), which means the user did not click on paint.
+    """
+    params = params or AutoZoneParams()
+    height, width = image.shape[:2]
+    cx, cy = round(x), round(y)
+    if not (0 <= cx < width and 0 <= cy < height):
+        return None
+    reach = max(2, round(4 * width / REFERENCE_WIDTH))
+    patch = _smooth(image, params)[
+        max(cy - reach, 0) : cy + reach + 1, max(cx - reach, 0) : cx + reach + 1
+    ]
+    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.float64)
+    # A click can land on the edge of a thin line, so read only the more colourful half of the
+    # patch, where the paint is.
+    paint = hsv[hsv[:, 1] >= np.median(hsv[:, 1])]
+    saturation, value = float(np.median(paint[:, 1])), float(np.median(paint[:, 2]))
+    if saturation < MIN_CLICKED_SATURATION:
+        return None
+    angle = np.radians(paint[:, 0] * 2.0)  # hue is a circle of 180 steps
+    hue = round((math.degrees(math.atan2(np.sin(angle).mean(), np.cos(angle).mean())) % 360) / 2)
+    return replace(
+        params,
+        hue=hue % 180,
+        min_saturation=max(15, int(saturation * 0.55)),
+        min_value=max(50, int(value * 0.6)),
+    )
+
+
+def _smooth(image: Frame, params: AutoZoneParams) -> Frame:
+    """Light blur, sized to the frame. Sensor noise moves the hue of pale pixels at random."""
+    sigma = params.blur_sigma * image.shape[1] / REFERENCE_WIDTH
+    if sigma <= 0:
+        return image
+    return np.asarray(cv2.GaussianBlur(image, (0, 0), sigma), dtype=np.uint8)
+
+
+def _find_paint_hue(image: Frame, params: AutoZoneParams) -> int | None:
+    """The hue whose pixels form the strongest bay structure, or None if none forms any.
+
+    Cardboard, cages and pillars are colored too, but their pixels do not make long base lines
+    with walls standing on them, so they score nothing.
+    """
+    height, width = image.shape[:2]
+    if width > params.search_width:
+        small = cv2.resize(
+            image, (params.search_width, round(height * params.search_width / width)),
+            interpolation=cv2.INTER_AREA,
+        )  # fmt: skip
+    else:
+        small = image
+    scores = {
+        hue: sum(e for _, e in _bays_of_color(np.asarray(small, np.uint8), hue, params))
+        for hue in range(0, 180, params.hue_step)
+    }
+    best = max(scores.values())
+    if best <= 0:
+        return None
+    # Hues next to the true paint colour score alike, so take the middle of the ones that tie
+    # (within 2%) instead of the first. Hue is a circle, so the middle is a circular mean.
+    tied = [hue for hue, score in scores.items() if score >= 0.98 * best]
+    angle = np.radians(np.array(tied, dtype=np.float64) * 2.0)
+    middle = math.degrees(math.atan2(np.sin(angle).mean(), np.cos(angle).mean())) % 360
+    return round(middle / 2) % 180
+
+
+def _bays_of_color(image: Frame, hue: int, params: AutoZoneParams) -> list[tuple[Polygon, float]]:
+    """The bays that the paint of one hue makes, each with the length of paint that supports it."""
     height, width = image.shape[:2]
     scale = width / REFERENCE_WIDTH
-
-    strokes = _strokes(_paint_mask(image, params), params, scale)
-    segments = _segments(strokes, params, scale)
-    lines = _merge_collinear(segments, params, scale)
-    bays = _bays(lines, params, scale)
-
-    polygons: list[Polygon] = []
-    for bay in bays:
-        polygon = _to_polygon(bay, width, height)
+    strokes = _strokes(_paint_mask(image, hue, params), params, scale)
+    lines = _merge_collinear(_segments(strokes, params, scale), params, scale)
+    found: list[tuple[Polygon, float]] = []
+    for corners, evidence in _bays(lines, params, scale):
+        polygon = _to_polygon(corners, width, height)
         if polygon is not None and _area(polygon) >= params.min_bay_area * scale**2:
-            polygons.append(polygon)
-    polygons = _drop_duplicates(polygons, params.duplicate_overlap)
-    return sorted(polygons, key=lambda poly: (min(x for x, _ in poly), min(y for _, y in poly)))
+            found.append((polygon, evidence))
+    return found
 
 
-def _paint_mask(image: Frame, params: AutoZoneParams) -> NDArray[np.uint8]:
-    hue, saturation, value = cv2.split(cv2.cvtColor(image, cv2.COLOR_BGR2HSV))
-    on = (
-        (hue >= params.hue[0])
-        & (hue <= params.hue[1])
-        & (saturation >= params.min_saturation)
-        & (value >= params.min_value)
-    )
+def _paint_mask(image: Frame, hue: int, params: AutoZoneParams) -> NDArray[np.uint8]:
+    hues, saturation, value = cv2.split(cv2.cvtColor(image, cv2.COLOR_BGR2HSV))
+    apart = np.abs(hues.astype(np.int16) - hue)
+    apart = np.minimum(apart, 180 - apart)  # hue is a circle
+    on = (apart <= params.hue_half_width) & (saturation >= params.min_saturation)
+    on &= value >= params.min_value
     return np.asarray(on, dtype=np.uint8)
 
 
@@ -227,7 +345,8 @@ def _merge_collinear(
     return lines
 
 
-def _bays(lines: list[_Line], params: AutoZoneParams, scale: float) -> list[list[Pt]]:
+def _bays(lines: list[_Line], params: AutoZoneParams, scale: float) -> list[tuple[list[Pt], float]]:
+    """Each bay's corners with the length of paint behind it (its base line and its two walls)."""
     bases = sorted(
         (
             line
@@ -254,7 +373,7 @@ def _bays(lines: list[_Line], params: AutoZoneParams, scale: float) -> list[list
         if w.length >= params.min_side_length * scale
         or (vanishing is not None and _points_at(w, vanishing, params.stub_direction_deg))
     ]
-    bays: list[list[Pt]] = []
+    bays: list[tuple[list[Pt], float]] = []
     for base in bases:
         standing = sorted(
             (w for w in walls if _stands_on(w, base, params, scale)),
@@ -263,7 +382,7 @@ def _bays(lines: list[_Line], params: AutoZoneParams, scale: float) -> list[list
         for a, b in zip(standing, standing[1:], strict=False):
             bay = _bay_between(a, b, vanishing, params)
             if bay is not None:
-                bays.append(bay)
+                bays.append((bay, a.length + b.length + base.length))
     return bays
 
 
