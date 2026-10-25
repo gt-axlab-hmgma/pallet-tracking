@@ -63,7 +63,11 @@ class DemoState:
         self.frame_version = 0
         self.frame_jpeg = b""
         self.image_size = (0, 0)
+        self.reference_image: np.ndarray | None = (
+            None  # the real first frame, never the placeholder
+        )
         self.set_reference(load_reference_frame(None))  # a placeholder until a source is loaded
+        self.reference_image = None
         self.sink, start_seq, sink_warnings = build_sink(settings)
         self.config_store = build_config_store(settings)
         self.warnings.extend(sink_warnings)
@@ -96,8 +100,13 @@ class DemoState:
         return config or empty
 
     def set_reference(self, frame: np.ndarray) -> None:
-        """The frame zones are drawn on: a placeholder, or the first frame of the source."""
+        """The frame zones are drawn on: a placeholder, or the first frame of the source.
+
+        The raw frame is kept as well as the JPEG: zones are proposed from the raw pixels, because
+        JPEG noise moves the corners that are extrapolated from a short piece of paint.
+        """
         with self.lock:
+            self.reference_image = np.array(frame, copy=True)
             self.frame_jpeg = encode_jpeg(frame)
             self.image_size = (int(frame.shape[1]), int(frame.shape[0]))
             self.frame_version += 1
