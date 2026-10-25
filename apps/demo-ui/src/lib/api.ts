@@ -1,4 +1,4 @@
-import type { DemoState, MutationResult, Zone, ZoneEvent } from "./types";
+import type { DemoState, MutationResult, Point, Zone, ZoneEvent, ZoneProposal } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -49,6 +49,16 @@ export const api = {
 
   saveZones: (zones: Zone[]) =>
     request<DemoState & MutationResult>("/api/zones", { method: "PUT", ...json({ zones }) }),
+
+  /**
+   * Propose zones from the painted floor lines on the current frame. Saves nothing. With a point
+   * on a painted line (image pixels) the paint colour is read from there; without one it is found.
+   */
+  autoZones: (point?: Point) =>
+    request<ZoneProposal>("/api/zones/auto", {
+      method: "POST",
+      ...(point ? json({ x: point[0], y: point[1] }) : {}),
+    }),
 
   /** Send the file as the raw request body (no multipart), then the API plays it. */
   uploadVideo: (file: File) =>

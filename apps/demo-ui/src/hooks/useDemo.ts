@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { MAX_VIDEO_BYTES, formatSize } from "@/lib/limits";
-import type { DemoState, MutationResult, Zone, ZoneEvent } from "@/lib/types";
+import type { DemoState, MutationResult, Point, Zone, ZoneEvent, ZoneProposal } from "@/lib/types";
 
 const MAX_EVENTS = 300;
 const POLL_MS = 200; // how often the tracked pallets and the source status are refreshed
@@ -40,6 +40,8 @@ export function useDemo() {
   const [sinkError, setSinkError] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<ZoneProposal | null>(null);
+  const [proposing, setProposing] = useState(false);
   const zoneQueue = useRef<Promise<unknown>>(Promise.resolve());
 
   const fail = useCallback((e: unknown) => setNotice({ kind: "error", text: messageOf(e) }), []);
@@ -146,8 +148,40 @@ export function useDemo() {
     [changeSource],
   );
 
+  /** Ask the API for zones from the painted floor lines. They are only shown until accepted. */
+  const proposeZones = useCallback(
+    async (point?: Point) => {
+      setProposing(true);
+      try {
+        const found = await api.autoZones(point);
+        if (found.polygons.length === 0) {
+          setProposal(null);
+          setNotice({
+            kind: "warn",
+            text: point
+              ? "No bays were found in that color. Click a different spot on the line, or draw the zones by hand (press Z)."
+              : "No painted floor lines were found. Try Pick line color and click on a painted line, or draw the zones by hand (press Z).",
+          });
+        } else {
+          setProposal(found);
+          setNotice(null);
+        }
+      } catch (e) {
+        fail(e);
+      } finally {
+        setProposing(false);
+      }
+    },
+    [fail],
+  );
+  const discardProposal = useCallback(() => setProposal(null), []);
+
   return {
     state,
+    proposal,
+    proposing,
+    proposeZones,
+    discardProposal,
     events,
     notice,
     sinkError,
