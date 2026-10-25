@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from palletvision_demo.live.autozone import find_zones, sample_paint
 from palletvision_demo.live.runner import (
     LivePlayer,
     camera_label,
@@ -24,6 +25,8 @@ from palletvision_infer.detections import Detector
 BOUNDARY = "frame"
 VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm"}
 NO_MODEL = "No model is loaded. Start pv-demo with --weights path/to/model.onnx."
+NOT_PAINT = "That spot is not coloured. Click on the painted line itself."
+NO_FRAME = "Load a video clip or connect a camera first: zones are proposed from its first frame."
 
 
 class ZonesBody(BaseModel):
@@ -32,6 +35,13 @@ class ZonesBody(BaseModel):
 
 class CameraBody(BaseModel):
     device: str
+
+
+class AutoZonesBody(BaseModel):
+    """A point on a painted line, in image pixels, to read the paint colour from."""
+
+    x: float
+    y: float
 
 
 def _result(result: Result) -> dict[str, Any]:
@@ -173,6 +183,32 @@ def create_app(settings: Settings | None = None, detector: Detector | None = Non
     async def eject_source() -> dict[str, object]:
         await asyncio.to_thread(need_player().eject)
         return state.snapshot()
+
+    @app.post("/api/zones/auto")
+    async def auto_zones(body: AutoZonesBody | None = None) -> dict[str, object]:
+        """Zones the painted floor lines suggest on the current frame, for the UI to preview.
+
+        Without a body the paint colour is found from the frame. With a point on a painted line
+        it is read from there, which works for any colour, lighting or camera.
+
+        Nothing is saved: the user accepts or discards them, and accepted ones go through
+        ``PUT /api/zones`` like drawn ones. ``frame_version`` says which frame they are for.
+        """
+        with state.lock:
+            image, version = state.reference_image, state.frame_version
+        if image is None:
+            raise HTTPException(status_code=422, detail=NO_FRAME)
+        params = None
+        if body is not None:
+            params = sample_paint(image, body.x, body.y)
+            if params is None:
+                raise HTTPException(status_code=422, detail=NOT_PAINT)
+        found = await asyncio.to_thread(find_zones, image, params)
+        return {
+            "frame_version": version,
+            "polygons": [[[x, y] for x, y in polygon] for polygon in found.polygons],
+            "hue": found.hue,  # the paint colour, so the UI can draw in one that stands out
+        }
 
     @app.put("/api/zones")
     def put_zones(body: ZonesBody) -> dict[str, object]:
